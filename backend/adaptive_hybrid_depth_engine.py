@@ -394,16 +394,21 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                                 vehicle_model: Any = None,
                                 flood_conf: float = 0.25,
                                 veh_conf: float = 0.35,
-                                mode: str = "Cột mốc") -> Tuple[np.ndarray, Any, str, HybridDepthReport]:
+                                mode: str = "Cột mốc",
+                                is_streaming: bool = False) -> Tuple[np.ndarray, Any, str, HybridDepthReport]:
     """
     Xử lý một khung hình hoàn chỉnh qua pipeline đo độ sâu theo Thủy chuẩn Cột mốc.
+    Tối ưu hóa thời gian thực siêu tốc khi is_streaming=True (imgsz=640, retina_masks=False).
     """
     import pandas as pd
     from fixed_object_gauge import process_single_frame_gauge
 
     h, w = frame_bgr.shape[:2]
 
-    # 1. Dự đoán mặt nạ nước độ phân giải cao trên GPU (retina_masks=True + Spatial-Temporal Refinement)
+    infer_imgsz = 640 if is_streaming else 800
+    infer_retina = False if is_streaming else True
+
+    # 1. Dự đoán mặt nạ nước trên GPU (Tối ưu tốc độ cao khi Streaming)
     flood_mask = np.zeros((h, w), dtype=np.float32)
     if flood_model is not None:
         try:
@@ -411,8 +416,8 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                 frame_bgr,
                 conf=float(flood_conf),
                 iou=0.55,
-                imgsz=800,
-                retina_masks=True,
+                imgsz=infer_imgsz,
+                retina_masks=infer_retina,
                 device=INFER_DEVICE,
                 verbose=False
             )[0]

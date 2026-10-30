@@ -1206,7 +1206,8 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
                     frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
-                    flood_conf=cur_conf, mode="Cột mốc"
+                    flood_conf=cur_conf, mode="Cột mốc",
+                    is_streaming=True
                 )
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
@@ -1216,12 +1217,18 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
-                time.sleep(0.005)
+                # Tối ưu nhịp phát FPS pacing mượt mà chống tràn buffer
+                t_infer = time.time() - t_frame_start
+                target_delay = float(step) / max(10.0, min(30.0, float(cap.get(cv2.CAP_PROP_FPS) or 25.0)))
+                time.sleep(max(0.015, target_delay - t_infer))
+
+                # Tách nhịp cập nhật bảng dữ liệu: Cập nhật mỗi 5 frame để giải phóng CPU browser
+                if render_cnt == 1 or (render_cnt % 5) == 0:
+                    last_df, last_alarm = df, alarm_html
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-                last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                yield hud_rgb, df, alarm_html, status_info
+                last_hud = hud_rgb
+                yield hud_rgb, last_df, last_alarm, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Frame {cur_idx}: {frame_err}")
                 continue
@@ -1694,12 +1701,17 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
-                time.sleep(0.005)
+                # Tối ưu nhịp phát FPS pacing mượt mà
+                t_infer = time.time() - t_frame_start
+                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
+                time.sleep(max(0.015, target_delay - t_infer))
+
+                if render_cnt == 1 or (render_cnt % 5) == 0:
+                    last_df, last_alarm = df, alarm_html
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count}</b> | Tốc độ TB: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
-                last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                yield hud_rgb, df, alarm_html, status_info
+                last_hud = hud_rgb
+                yield hud_rgb, last_df, last_alarm, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Traffic Frame {cur_idx}: {frame_err}")
                 continue
@@ -2040,7 +2052,8 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 flood_hud_rgb, flood_df, flood_alarm_html, flood_report = process_single_frame_hybrid(
                     frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
-                    flood_conf=cur_flood_conf, mode="Cột mốc"
+                    flood_conf=cur_flood_conf, mode="Cột mốc",
+                    is_streaming=True
                 )
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
@@ -2060,13 +2073,18 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     final_hud_rgb = cv2.resize(final_hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
-                time.sleep(0.005)
+                # Tối ưu nhịp phát FPS pacing mượt mà
+                t_infer = time.time() - t_frame_start
+                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
+                time.sleep(max(0.015, target_delay - t_infer))
 
-                summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                # Tách nhịp cập nhật bảng dữ liệu: Cập nhật mỗi 5 frame
+                if (render_cnt % 5) == 1 or render_cnt == 1:
+                    last_df, last_alert = build_fusion_outputs(flood_report, traffic_report)
+
                 status_info = f"<div style='color:#38bdf8;'>🎬 Video ({cur_idx}/{total_frames}) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b> ({traffic_report.status_label})</div>"
-                last_hud, last_df, last_alert = final_hud_rgb, summary_df, alert_html
-                yield final_hud_rgb, summary_df, alert_html, status_info
+                last_hud = final_hud_rgb
+                yield final_hud_rgb, last_df, last_alert, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Video Fusion Frame {cur_idx}: {frame_err}")
                 continue
@@ -2670,6 +2688,98 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
             outputs=[traffic_canvas, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
         )
 
+
+# ==============================================================================
+# FASTAPI REALTIME STREAMING & HEALTH ENDPOINTS (GẮN TRỰC TIẾP VÀO DEMO.APP)
+# ==============================================================================
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+
+demo.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@demo.app.get("/api/v1/health")
+def api_health():
+    gpu_ok = torch.cuda.is_available()
+    gpu_name = torch.cuda.get_device_name(0) if gpu_ok else "CPU"
+    return {
+        "status": "ready",
+        "device": "cuda:0" if gpu_ok else "cpu",
+        "gpu_name": gpu_name,
+        "models_ready": active_flood is not None and vehicle_model is not None
+    }
+
+@demo.app.get("/api/v1/stream/live")
+def stream_live_mjpeg(mode: str = "fusion", source: str = None, conf: float = 0.25):
+    """Native Hardware-Decoded MJPEG Streaming Endpoint (25-30 FPS mượt mà)."""
+    def generate_frames():
+        target_src = source.strip() if (source and source.strip()) else ""
+        if not target_src:
+            target_src = DEFAULT_GAUGE_VIDEO if DEFAULT_GAUGE_VIDEO and Path(DEFAULT_GAUGE_VIDEO).exists() else ""
+        if not target_src:
+            return
+
+        clean_src = resolve_camera_stream_url(target_src) if (target_src.startswith("http") or target_src.startswith("rtsp")) else target_src
+        cap = cv2.VideoCapture(clean_src)
+        if not cap.isOpened():
+            return
+
+        cur_stream_flood = get_selected_flood_model()
+        step_cnt = 0
+        try:
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    # Nếu là video tệp tin thì quay vòng lặp lại từ đầu
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        break
+
+                step_cnt += 1
+                if (step_cnt % 2) != 0:
+                    continue
+
+                if mode == "flood":
+                    hud_rgb, _, _, _ = process_single_frame_hybrid(
+                        frame, global_multi_gauge_manager, global_tab5_arbiter,
+                        cur_stream_flood, None, flood_conf=conf, mode="Cột mốc", is_streaming=True
+                    )
+                    out_bgr = cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR)
+                elif mode == "traffic":
+                    hud_rgb, _, _, _ = global_traffic_analyzer.analyze_frame(
+                        frame, vehicle_model, veh_conf=conf, fps=25.0, is_single_image=False
+                    )
+                    out_bgr = cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR)
+                else: # fusion
+                    flood_hud_rgb, _, _, _ = process_single_frame_hybrid(
+                        frame, global_multi_gauge_manager, global_tab5_arbiter,
+                        cur_stream_flood, None, flood_conf=conf, mode="Cột mốc", is_streaming=True
+                    )
+                    flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                    final_hud_rgb, _, _, _ = global_traffic_analyzer.analyze_frame(
+                        flood_hud_bgr, vehicle_model, veh_conf=conf, fps=25.0, is_single_image=False
+                    )
+                    out_bgr = cv2.cvtColor(final_hud_rgb, cv2.COLOR_RGB2BGR)
+
+                h_f, w_f = out_bgr.shape[:2]
+                if w_f > 640:
+                    out_bgr = cv2.resize(out_bgr, (640, int(h_f * 640.0 / w_f)), interpolation=cv2.INTER_LINEAR)
+
+                _, buf = cv2.imencode(".jpg", out_bgr, [cv2.IMWRITE_JPEG_QUALITY, 72])
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+        finally:
+            cap.release()
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
 if __name__ == "__main__":
     demo.queue(default_concurrency_limit=10)
