@@ -551,7 +551,7 @@
     <!-- Status Indicator -->
     <div class="status-pill" id="btnStatusPill" title="Bấm để kiểm tra lại trạng thái API Model">
       <span class="status-dot pulsing" id="topStatusDot"></span>
-      <span id="topStatusText">Đang kiểm tra Model...</span>
+      <span id="topStatusText">Đang kết nối Backend GPU...</span>
     </div>
 
     <!-- Nút Kết Nối API Model -->
@@ -765,29 +765,34 @@
     // ========================================================================
     async function checkBackendOnline() {
       if (isExecutingKernel) return;
-
       const config = getConfig();
-      if (!config.token) return;
 
       try {
-        const res = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${config.token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ userName: config.user, kernelSlug: config.slug })
+        const t0 = performance.now();
+        const res = await fetch(`${config.ngrok}/config`, {
+          method: "GET",
+          headers: { "ngrok-skip-browser-warning": "true" },
+          cache: "no-store"
         });
+        const elapsed = Math.round(performance.now() - t0);
         if (res.ok) {
-          const data = await res.json();
-          if (data.status === "RUNNING") {
-            updateStatusUI("online", "API Model: Online");
-            return true;
-          } else {
-            updateStatusUI("offline", "API Model: Offline");
-            showOverlay();
-            return false;
-          }
+          updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
+          return true;
+        } else {
+          updateStatusUI("offline", "🔴 Backend GPU: Offline");
+          return false;
+        }
+      } catch (err) {
+        try {
+          await fetch(`${config.ngrok}/favicon.ico`, { mode: "no-cors", cache: "no-store" });
+          updateStatusUI("online", "🟢 Backend GPU: Online");
+          return true;
+        } catch(e) {}
+
+        updateStatusUI("offline", "🔴 Backend GPU: Offline");
+        return false;
+      }
+    }
         }
       } catch (e) {
         console.warn("Status check error:", e);
@@ -1121,10 +1126,11 @@
     });
 
     frame.addEventListener("load", () => {
-      // Khi iframe hoàn thành tải
+      updateStatusUI("online", "🟢 Backend GPU: Online");
+      showToast("Giao diện AI Model đã sẵn sàng!", "success");
       setTimeout(() => {
         checkBackendOnline();
-      }, 500);
+      }, 1000);
     });
 
     // Định kỳ quét trạng thái backend mỗi 5 giây

@@ -32,8 +32,9 @@ app.post('/api/wake-up', (req, res) => {
     }
 
     // Call Kaggle API securely
+    const kernelId = process.env.KAGGLE_KERNEL_ID || `${username}/synexan-flood-backend-gpu`;
     const postData = JSON.stringify({
-        id: "nguynvlun/floodkaggleapi"
+        id: kernelId
     });
 
     const auth = Buffer.from(`${username}:${key}`).toString('base64');

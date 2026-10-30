@@ -1,21 +1,15 @@
 {
-  "id": "nguynvlun/floodkaggleapi",
-  "id_no": 141540954,
-  "title": "floodkaggleapi",
-  "code_file": "floodkaggleapi.ipynb",
+  "id": "nguynthanhthit/synexan-flood-backend-gpu",
+  "title": "synexan-flood-backend-gpu",
+  "code_file": "synexan_flood_gpu.ipynb",
   "language": "python",
   "kernel_type": "notebook",
   "is_private": false,
   "enable_gpu": true,
   "enable_tpu": false,
   "enable_internet": true,
-  "keywords": [
-    "gpu"
-  ],
   "dataset_sources": [],
   "kernel_sources": [],
   "competition_sources": [],
-  "model_sources": [],
-  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:9a6bcfda6d03b2cd9aa347ee8c1bae62043328ed0f4afe9bda014e4f8bbf9435",
-  "machine_shape": "NvidiaTeslaT4"
+  "model_sources": []
 }
