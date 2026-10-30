@@ -467,7 +467,9 @@ class TrafficCongestionAnalyzer:
         fps: float = 25.0,
         is_single_image: bool = False,
         location_name: str = "Camera Giao Thông",
-        sim_time_s: Optional[float] = None
+        sim_time_s: Optional[float] = None,
+        return_bgr: bool = False,
+        is_streaming: bool = False
     ) -> Tuple[np.ndarray, pd.DataFrame, str, TrafficCongestionReport]:
         """
         Thực thi trọn vẹn pipeline 7 bước trên 1 khung hình với tốc độ cao và ước lượng km/h chuẩn xác.
@@ -476,7 +478,7 @@ class TrafficCongestionAnalyzer:
         orig_h, orig_w = frame_bgr.shape[:2]
         if orig_w > 960 and not is_single_image:
             scale = 960.0 / float(orig_w)
-            work_frame = cv2.resize(frame_bgr, (960, int(orig_h * scale)), interpolation=cv2.INTER_AREA)
+            work_frame = cv2.resize(frame_bgr, (960, int(orig_h * scale)), interpolation=cv2.INTER_LINEAR)
         else:
             work_frame = frame_bgr
 
@@ -511,28 +513,32 @@ class TrafficCongestionAnalyzer:
                         valid_veh_names = {"car", "motorcycle", "motorbike", "bus", "truck", "bicycle"}
                         target_classes = [c_id for c_id, c_name in model_names.items() if str(c_name).lower() in valid_veh_names]
 
-                if is_single_image:
-                    results = vehicle_model.predict(
-                        det_frame,
-                        conf=base_conf,
-                        iou=0.48,
-                        classes=target_classes,
-                        imgsz=640,
-                        device=INFER_DEVICE,
-                        verbose=False
-                    )[0]
-                else:
-                    results = vehicle_model.track(
-                        det_frame,
-                        conf=base_conf,
-                        iou=0.48,
-                        classes=target_classes,
-                        tracker="bytetrack.yaml",
-                        persist=True,
-                        imgsz=640,
-                        device=INFER_DEVICE,
-                        verbose=False
-                    )[0]
+                use_half = bool(INFER_DEVICE != "cpu" and torch.cuda.is_available())
+                with torch.inference_mode():
+                    if is_single_image:
+                        results = vehicle_model.predict(
+                            det_frame,
+                            conf=base_conf,
+                            iou=0.48,
+                            classes=target_classes,
+                            imgsz=640 if not is_streaming else 480,
+                            half=use_half,
+                            device=INFER_DEVICE,
+                            verbose=False
+                        )[0]
+                    else:
+                        results = vehicle_model.track(
+                            det_frame,
+                            conf=base_conf,
+                            iou=0.48,
+                            classes=target_classes,
+                            tracker="bytetrack.yaml",
+                            persist=True,
+                            imgsz=640 if not is_streaming else 480,
+                            half=use_half,
+                            device=INFER_DEVICE,
+                            verbose=False
+                        )[0]
 
                 if results.boxes is not None and len(results.boxes) > 0:
                     xyxys = results.boxes.xyxy.cpu().numpy()
@@ -749,7 +755,7 @@ class TrafficCongestionAnalyzer:
 
         # 7. Vẽ HUD mảnh và tạo bảng thông số + cảnh báo
         hud_bgr = self.render_traffic_hud(work_frame, report, is_single_image=is_single_image)
-        hud_rgb = cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
+        output_frame = hud_bgr if return_bgr else cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
 
         spd_str = f"{avg_speed_kmh:.1f} km/h" if not is_single_image else "Ảnh tĩnh"
         df = pd.DataFrame([{

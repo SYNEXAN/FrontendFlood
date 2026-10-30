@@ -389,7 +389,8 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                                 flood_conf: float = 0.25,
                                 veh_conf: float = 0.35,
                                 mode: str = "Cột mốc",
-                                is_streaming: bool = False) -> Tuple[np.ndarray, Any, str, HybridDepthReport]:
+                                is_streaming: bool = False,
+                                return_bgr: bool = False) -> Tuple[np.ndarray, Any, str, HybridDepthReport]:
     """
     Xử lý một khung hình hoàn chỉnh qua pipeline đo độ sâu theo Thủy chuẩn Cột mốc.
     Tối ưu hóa thời gian thực siêu tốc khi is_streaming=True (imgsz=640, retina_masks=False).
@@ -401,20 +402,23 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
 
     infer_imgsz = 640 if is_streaming else 800
     infer_retina = False if is_streaming else True
+    use_half = bool(INFER_DEVICE != "cpu" and torch.cuda.is_available())
 
     # 1. Dự đoán mặt nạ nước trên GPU (Tối ưu tốc độ cao khi Streaming)
     flood_mask = np.zeros((h, w), dtype=np.float32)
     if flood_model is not None:
         try:
-            f_res = flood_model.predict(
-                frame_bgr,
-                conf=float(flood_conf),
-                iou=0.55,
-                imgsz=640,
-                retina_masks=False,
-                device=INFER_DEVICE,
-                verbose=False
-            )[0]
+            with torch.inference_mode():
+                f_res = flood_model.predict(
+                    frame_bgr,
+                    conf=float(flood_conf),
+                    iou=0.55,
+                    imgsz=infer_imgsz,
+                    half=use_half,
+                    retina_masks=infer_retina,
+                    device=INFER_DEVICE,
+                    verbose=False
+                )[0]
             prev_m = getattr(arbiter, "prev_flood_mask", None) if arbiter is not None else None
             if f_res.masks is not None and len(f_res.masks.data) > 0:
                 combined_gpu = torch.amax(f_res.masks.data, dim=0)
@@ -465,7 +469,7 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                                      active_gauge,
                                      report,
                                      flood_mask=flood_mask)
-    hud_rgb = cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
+    output_frame = hud_bgr if return_bgr else cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
 
     # 5. Tạo DataFrame thống kê
     alert_tag = report.alert_title.split(':')[1].strip() if ':' in report.alert_title else report.alert_title
@@ -512,7 +516,7 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
     </div>
     """
 
-    return hud_rgb, df, alarm_html, report
+    return output_frame, df, alarm_html, report
 
 
 def process_video_tab5_hybrid(video_path: str,
