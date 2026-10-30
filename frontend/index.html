@@ -641,13 +641,33 @@
     };
 
     function getConfig() {
+      let savedUrl = localStorage.getItem("flood_ngrok_url");
+      // Tự động giải phóng ngrok domain cũ khi đã chuyển sang Cloudflare
+      if (savedUrl && savedUrl.includes("ngrok-free.dev")) {
+        localStorage.removeItem("flood_ngrok_url");
+        savedUrl = null;
+      }
       return {
         token: localStorage.getItem("flood_kaggle_token") || DEFAULT_CONFIG.kaggleToken,
         user: localStorage.getItem("flood_kaggle_user") || DEFAULT_CONFIG.username,
         slug: localStorage.getItem("flood_kaggle_slug") || DEFAULT_CONFIG.kernelSlug,
-        ngrok: localStorage.getItem("flood_ngrok_url") || DEFAULT_CONFIG.ngrokUrl
+        ngrok: savedUrl || DEFAULT_CONFIG.ngrokUrl
       };
     }
+
+    // Tự động đồng bộ URL Backend mới nhất từ Server Render
+    fetch("/api/config")
+      .then(res => res.json())
+      .then(cfg => {
+        if (cfg && cfg.defaultBackendUrl) {
+          DEFAULT_CONFIG.ngrokUrl = cfg.defaultBackendUrl;
+          const currentConfig = getConfig();
+          if (frame && currentConfig.ngrok && frame.src !== currentConfig.ngrok) {
+            frame.src = currentConfig.ngrok;
+          }
+        }
+      })
+      .catch(() => {});
 
     // ========================================================================
     // DOM ELEMENTS

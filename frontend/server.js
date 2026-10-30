@@ -5,23 +5,34 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://uselessly-rascal-twentieth.ngrok-free.dev";
+let activeBackendUrl = process.env.DEFAULT_BACKEND_URL || "https://uselessly-rascal-twentieth.ngrok-free.dev";
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot)
+app.post('/api/backend-url', (req, res) => {
+    const { url } = req.body;
+    if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+        activeBackendUrl = url.trim().replace(/\/+$/, '');
+        console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${activeBackendUrl}`);
+        return res.json({ success: true, activeBackendUrl });
+    }
+    res.status(400).json({ error: "Invalid URL" });
+});
+
 // API Config Endpoint
 app.get('/api/config', (req, res) => {
     res.json({
-        defaultBackendUrl: DEFAULT_BACKEND_URL,
+        defaultBackendUrl: activeBackendUrl,
         kaggleConfigured: !!(process.env.KAGGLE_USERNAME && process.env.KAGGLE_KEY)
     });
 });
 
 // Server-side Heartbeat Status Check (Tránh hoàn toàn lỗi CORS của trình duyệt)
 app.get('/api/status', (req, res) => {
-    const targetUrl = req.query.target || DEFAULT_BACKEND_URL;
+    const targetUrl = req.query.target || activeBackendUrl;
     let checkUrl = targetUrl;
     if (!checkUrl.endsWith('/config')) {
         checkUrl = checkUrl.replace(/\/+$/, '') + '/config';
