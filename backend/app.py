@@ -2533,6 +2533,14 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 # ==============================================================================
 import threading
 
+@demo.app.middleware("http")
+async def allow_iframe_embedding_middleware(request: Request, call_next):
+    response = await call_next(request)
+    # Xoá bỏ mọi rào cản iframe từ trình duyệt
+    response.headers.pop("X-Frame-Options", None)
+    response.headers["Content-Security-Policy"] = "frame-ancestors *"
+    return response
+
 STREAMING_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
     "Pragma": "no-cache",
