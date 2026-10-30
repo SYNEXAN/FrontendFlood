@@ -281,6 +281,64 @@ LIVE_STREAM_STATE = {
     "veh_conf": 0.35,
 }
 
+SERVER_FRAME_CACHE = {
+    "tab5_base": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
+    "traffic_base": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
+    "fusion_base": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
+}
+
+
+def get_state_base_frame(state_data, default=None):
+    """Lấy khung hình gốc từ RAM máy chủ, tránh tải 15.4MB qua mạng trên mỗi tương tác/khung hình."""
+    if not isinstance(state_data, dict):
+        return default
+    if state_data.get("base_frame") is not None:
+        return state_data["base_frame"]
+    key = state_data.get("frame_key")
+    if key and key in SERVER_FRAME_CACHE:
+        return SERVER_FRAME_CACHE[key]
+    return default
+
+
+def set_state_base_frame(state_data, frame, key=None):
+    """Lưu khung hình gốc trên RAM máy chủ và chỉ giữ mã khóa định danh trong gr.State."""
+    if not isinstance(state_data, dict):
+        return
+    state_data.pop("base_frame", None)
+    if not key:
+        key = state_data.get("frame_key") or "default_base"
+    state_data["frame_key"] = key
+    SERVER_FRAME_CACHE[key] = frame
+
+
+DEFAULT_TAB5_STATE = {
+    "source_type": "video",
+    "video_path": DEFAULT_GAUGE_VIDEO,
+    "cam_source": None,
+    "total_frames": INIT_TOTAL_FRAMES,
+    "fps": INIT_FPS,
+    "current_frame_idx": 0,
+    "step": 0,
+    "frame_key": "tab5_base",
+    "p_bot": None,
+    "p_mid": None,
+    "p_top": None,
+    "calib_mode": "3_points",
+    "strip_width": 20,
+}
+
+DEFAULT_TRAFFIC_STATE = {
+    "source_type": "video",
+    "video_path": DEFAULT_GAUGE_VIDEO,
+    "cam_source": None,
+    "cam_title": "Video mặc định",
+    "total_frames": INIT_TOTAL_FRAMES,
+    "fps": INIT_FPS,
+    "current_frame_idx": 0,
+    "frame_key": "traffic_base",
+    "draft_roi_pts": [],
+}
+
 DEFAULT_FUSION_STATE = {
     "source_type": "video",
     "video_path": DEFAULT_GAUGE_VIDEO,
@@ -289,7 +347,7 @@ DEFAULT_FUSION_STATE = {
     "total_frames": INIT_TOTAL_FRAMES,
     "fps": INIT_FPS,
     "current_frame_idx": 0,
-    "base_frame": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
+    "frame_key": "fusion_base",
 }
 
 
@@ -345,6 +403,7 @@ def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, str
         strip_width=strip_w
     )
 
+    SERVER_FRAME_CACHE["tab5_base"] = frame0
     new_state = {
         "source_type": "video",
         "video_path": clean_path,
@@ -353,7 +412,7 @@ def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, str
         "fps": fps,
         "current_frame_idx": 0,
         "step": 0,
-        "base_frame": frame0,
+        "frame_key": "tab5_base",
         "p_bot": None,
         "p_mid": None,
         "p_top": None,
@@ -402,6 +461,7 @@ def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_
         strip_width=strip_w
     )
 
+    SERVER_FRAME_CACHE["tab5_base"] = frame_bgr
     new_state = {
         "source_type": "image",
         "video_path": state_data.get("video_path", "") if state_data else "",
@@ -410,7 +470,7 @@ def on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_
         "fps": 1.0,
         "current_frame_idx": 0,
         "step": 0,
-        "base_frame": frame_bgr,
+        "frame_key": "tab5_base",
         "p_bot": None,
         "p_mid": None,
         "p_top": None,
@@ -493,6 +553,7 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
         strip_width=strip_w
     )
 
+    SERVER_FRAME_CACHE["tab5_base"] = frame_bgr
     new_state = {
         "source_type": "camera_stream",
         "video_path": state_data.get("video_path", "") if state_data else "",
@@ -501,7 +562,7 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
         "fps": 25.0,
         "current_frame_idx": 0,
         "step": 0,
-        "base_frame": frame_bgr,
+        "frame_key": "tab5_base",
         "p_bot": None,
         "p_mid": None,
         "p_top": None,
@@ -578,7 +639,7 @@ def on_tab5_seek_frame(frame_idx, state_data, name, h_start_cm, h_end_cm, strip_
     if frame is None:
         return None, state_data
 
-    state_data["base_frame"] = frame
+    set_state_base_frame(state_data, frame, "tab5_base")
     state_data["current_frame_idx"] = int(frame_idx)
     state_data["strip_width"] = strip_w
 
@@ -615,10 +676,10 @@ def on_tab5_mode_change(calib_mode, state_data, name, h_start_cm, h_end_cm, stri
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
-    if not state_data or state_data.get("base_frame") is None:
+    if not state_data or get_state_base_frame(state_data) is None:
         return None, state_data, "<div style='color:orange;'>Chưa có khung hình!</div>"
 
-    base_frame = state_data["base_frame"]
+    base_frame = get_state_base_frame(state_data)
     state_data["calib_mode"] = mode_str
     state_data["strip_width"] = strip_w
     state_data["p_bot"] = None
@@ -651,10 +712,10 @@ def on_tab5_canvas_click(evt: gr.SelectData, state_data, name, h_start_cm, h_end
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
-    if not state_data or state_data.get("base_frame") is None:
+    if not state_data or get_state_base_frame(state_data) is None:
         return None, state_data, "<div style='color:orange;'>Chưa có khung hình để chấm điểm!</div>"
 
-    base_frame = state_data["base_frame"]
+    base_frame = get_state_base_frame(state_data)
     x, y = int(evt.index[0]), int(evt.index[1])
     step = state_data.get("step", 0)
 
@@ -713,7 +774,7 @@ def on_tab5_width_change(new_width, state_data, name, h_start_cm, h_end_cm, **kw
     if state_data:
         state_data["strip_width"] = strip_w
 
-    base_frame = state_data.get("base_frame") if state_data else None
+    base_frame = get_state_base_frame(state_data)
     step = state_data.get("step", 0) if state_data else 0
 
     # Nếu không đang chấm điểm nháp mới thì cập nhật bề rộng của mốc đang chọn và hiệu chuẩn lại mẫu khô
@@ -756,10 +817,10 @@ def on_tab5_save_gauge(state_data, name, h_start_cm, h_end_cm, strip_width=20, *
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
 
-    if not state_data or state_data.get("base_frame") is None:
+    if not state_data or get_state_base_frame(state_data) is None:
         return gr.skip(), state_data, "<div style='color:#ef4444;'>⚠️ Chưa có khung hình video!</div>", gr.skip(), gr.skip(), gr.skip(), gr.skip()
 
-    base_frame = state_data["base_frame"]
+    base_frame = get_state_base_frame(state_data)
     p_bot = state_data.get("p_bot")
     p_mid = state_data.get("p_mid")
     p_top = state_data.get("p_top")
@@ -857,7 +918,7 @@ def reset_tab5_gauge_points(state_data, strip_width=20, **kwargs):
         state_data["calib_mode"] = mode_str
         state_data["strip_width"] = strip_w
 
-    base = state_data.get("base_frame") if state_data else INIT_GAUGE_FRAME
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
     prev = draw_multi_calibration_preview(
         base,
         global_multi_gauge_manager,
@@ -894,7 +955,7 @@ def on_tab5_reset_all_gauges(state_data, strip_width=20, **kwargs):
         state_data["calib_mode"] = mode_str
         state_data["strip_width"] = strip_w
 
-    base = state_data.get("base_frame") if state_data else INIT_GAUGE_FRAME
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
     prev = draw_multi_calibration_preview(
         base,
         global_multi_gauge_manager,
@@ -932,7 +993,7 @@ def on_tab5_remove_active_gauge(active_gid, state_data, **kwargs):
     if new_val:
         global_multi_gauge_manager.set_active_gauge(new_val)
 
-    base = state_data.get("base_frame") if state_data else INIT_GAUGE_FRAME
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
     p_bot = state_data.get("p_bot") if state_data else None
     p_mid = state_data.get("p_mid") if state_data else None
     p_top = state_data.get("p_top") if state_data else None
@@ -971,7 +1032,7 @@ def on_tab5_flood_conf_changed(new_conf, state_data):
         return gr.skip(), gr.skip(), gr.skip(), status
 
     # Nếu đang xem ảnh tĩnh hoặc video đã dừng/tua:
-    base_frame = state_data.get("base_frame") if state_data else None
+    base_frame = get_state_base_frame(state_data)
     if base_frame is None:
         status = f"<div style='color:#38bdf8;'>🎯 <b>Đã thiết lập ngưỡng nước: {val:.2f}</b></div>"
         return gr.skip(), gr.skip(), gr.skip(), status
@@ -1006,7 +1067,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
 
     # Trường hợp 1: Nguồn đầu vào là Ảnh tĩnh (từ Tab Ảnh)
     if source_type == "image":
-        base_frame = state_data.get("base_frame") if state_data else None
+        base_frame = get_state_base_frame(state_data)
         if base_frame is None:
             LIVE_STREAM_STATE["active"] = False
             yield None, pd.DataFrame(), "<div style='color:red;'>⚠️ Vui lòng tải ảnh lên trước khi dự đoán!</div>", "<div style='color:red;'>⚠️ Chưa có ảnh hợp lệ</div>"
@@ -1029,7 +1090,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         grabber = LatestFrameGrabber(cam_src)
         if not grabber.is_opened:
             grabber.release()
-            base_frame = state_data.get("base_frame") if state_data else None
+            base_frame = get_state_base_frame(state_data)
             if base_frame is not None and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
                 hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
@@ -1155,9 +1216,8 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                t_infer = time.time() - t_frame_start
-                target_delay = float(step) / max(10.0, min(30.0, float(cap.get(cv2.CAP_PROP_FPS) or 25.0)))
-                time.sleep(max(0.015, target_delay - t_infer))
+                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
+                time.sleep(0.005)
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
                 last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
@@ -1213,6 +1273,7 @@ def on_traffic_video_loaded(video_file, state_data):
     if frame0 is None:
         return None, gr.Slider(maximum=1, value=0), state_data, "<div style='color:red;'>Không thể đọc khung hình đầu tiên của video!</div>"
 
+    SERVER_FRAME_CACHE["traffic_base"] = frame0
     new_state = {
         "source_type": "video",
         "video_path": clean_path,
@@ -1221,7 +1282,7 @@ def on_traffic_video_loaded(video_file, state_data):
         "total_frames": total_frames,
         "fps": fps,
         "current_frame_idx": 0,
-        "base_frame": frame0,
+        "frame_key": "traffic_base",
         "draft_roi_pts": [],
     }
 
@@ -1247,6 +1308,7 @@ def on_traffic_image_loaded(img_rgb, state_data):
         return gr.skip(), gr.skip(), state_data, "<div style='color:orange;'>Chưa có ảnh.</div>"
 
     frame_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+    SERVER_FRAME_CACHE["traffic_base"] = frame_bgr
     new_state = {
         "source_type": "image",
         "video_path": state_data.get("video_path", "") if state_data else "",
@@ -1255,7 +1317,7 @@ def on_traffic_image_loaded(img_rgb, state_data):
         "total_frames": 1,
         "fps": 1.0,
         "current_frame_idx": 0,
-        "base_frame": frame_bgr,
+        "frame_key": "traffic_base",
         "draft_roi_pts": [],
     }
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
@@ -1295,6 +1357,7 @@ def on_traffic_camera_connect(cam_url_str, state_data):
             f"<div style='color:#ef4444;'>⚠️ Đã ngắt luồng cũ nhưng không thể lấy khung hình từ <b>{cam_title}</b>. Vui lòng kiểm tra kết nối mạng hoặc chọn Camera khác!</div>",
         )
 
+    SERVER_FRAME_CACHE["traffic_base"] = frame_bgr
     new_state = {
         "source_type": "camera_stream",
         "video_path": state_data.get("video_path", "") if state_data else "",
@@ -1303,7 +1366,7 @@ def on_traffic_camera_connect(cam_url_str, state_data):
         "total_frames": 1,
         "fps": 25.0,
         "current_frame_idx": 0,
-        "base_frame": frame_bgr,
+        "frame_key": "traffic_base",
         "draft_roi_pts": [],
     }
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
@@ -1361,7 +1424,7 @@ def on_traffic_seek_frame(frame_idx, state_data):
     frame = extract_video_frame(video_path, int(frame_idx))
     if frame is None:
         return gr.skip(), state_data
-    state_data["base_frame"] = frame
+    set_state_base_frame(state_data, frame, "traffic_base")
     state_data["current_frame_idx"] = int(frame_idx)
     return _render_traffic_base_with_roi(frame, state_data), state_data
 
@@ -1372,10 +1435,10 @@ def on_traffic_canvas_click(evt: gr.SelectData, state_data, roi_label):
     - Chấm lần lượt 4 góc (Góc 1 -> Góc 2 -> Góc 3 -> Góc 4) để tạo khung 4 góc xác định làn đường.
     - Khi đã có đủ 4 góc: nhấp chuột vào đâu sẽ tự động kéo/dời góc gần nhất tới vị trí mới đó!
     """
-    if not state_data or state_data.get("base_frame") is None:
+    if not state_data or get_state_base_frame(state_data) is None:
         return gr.skip(), state_data, "<div style='color:orange;'>⚠️ Chưa có khung hình để vẽ làn đường!</div>"
 
-    base_frame = state_data["base_frame"]
+    base_frame = get_state_base_frame(state_data)
     h, w = base_frame.shape[:2]
     x, y = int(evt.index[0]), int(evt.index[1])
     lbl = str(roi_label).strip() if (roi_label and str(roi_label).strip()) else "Làn đường giám sát"
@@ -1429,9 +1492,9 @@ def on_traffic_roi_label_change(roi_label, state_data):
     """Cập nhật tên nhãn hiển thị trên khung 4 góc làn đường."""
     lbl = str(roi_label).strip() if (roi_label and str(roi_label).strip()) else "Làn đường giám sát"
     global_traffic_analyzer.roi_label = lbl
-    if not state_data or state_data.get("base_frame") is None:
+    if not state_data or get_state_base_frame(state_data) is None:
         return gr.skip()
-    return _render_traffic_base_with_roi(state_data["base_frame"], state_data)
+    return _render_traffic_base_with_roi(get_state_base_frame(state_data), state_data)
 
 
 def on_traffic_clear_roi(state_data):
@@ -1439,7 +1502,7 @@ def on_traffic_clear_roi(state_data):
     global_traffic_analyzer.clear_roi()
     if state_data:
         state_data["draft_roi_pts"] = []
-    base_frame = state_data.get("base_frame") if state_data else None
+    base_frame = get_state_base_frame(state_data)
     if base_frame is None:
         return gr.skip(), state_data, "<div style='color:#f59e0b;'>🗑️ Đã xóa khung làn đường.</div>"
     msg = "<div style='color:#f59e0b;'>🗑️ <b>Đã xóa khung 4 góc làn đường</b> (quay về giám sát toàn khung hình). Hãy chấm 4 góc trên ảnh nếu muốn tạo khung mới!</div>"
@@ -1458,7 +1521,7 @@ def on_traffic_veh_conf_changed(new_conf, state_data):
         return gr.skip(), gr.skip(), gr.skip(), status
 
     # Nếu đang xem ảnh tĩnh hoặc video đã dừng/tua:
-    base_frame = state_data.get("base_frame") if state_data else None
+    base_frame = get_state_base_frame(state_data)
     if base_frame is None:
         status = f"<div style='color:#38bdf8;'>🎯 <b>Đã thiết lập ngưỡng phương tiện: {val:.2f}</b></div>"
         return gr.skip(), gr.skip(), gr.skip(), status
@@ -1488,7 +1551,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
 
     # Trường hợp 1: Nguồn Ảnh tĩnh
     if source_type == "image":
-        base_frame = state_data.get("base_frame") if state_data else None
+        base_frame = get_state_base_frame(state_data)
         if base_frame is None:
             LIVE_STREAM_STATE["active"] = False
             yield None, pd.DataFrame(), "<div style='color:red;'>⚠️ Vui lòng tải ảnh lên trước khi dự đoán!</div>", "<div style='color:red;'>⚠️ Chưa có ảnh hợp lệ</div>"
@@ -1509,7 +1572,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         grabber = LatestFrameGrabber(cam_src)
         if not grabber.is_opened:
             grabber.release()
-            base_frame = state_data.get("base_frame") if state_data else None
+            base_frame = get_state_base_frame(state_data)
             if base_frame is not None and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
                 hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
@@ -1631,9 +1694,8 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                t_infer = time.time() - t_frame_start
-                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
-                time.sleep(max(0.015, target_delay - t_infer))
+                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
+                time.sleep(0.005)
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count}</b> | Tốc độ TB: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
                 last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
@@ -1694,7 +1756,7 @@ def on_fusion_image_loaded(img_rgb, state_data):
     if state_data is None:
         state_data = DEFAULT_FUSION_STATE.copy()
     state_data["source_type"] = "image"
-    state_data["base_frame"] = img_rgb.copy()
+    set_state_base_frame(state_data, img_rgb.copy(), "fusion_base")
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
     msg = "<div style='color:#22c55e;'>✅ <b>Đã nạp ảnh thành công!</b> Nhấn <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích tuần tự cả Ngập Lụt & Phương Tiện.</div>"
     return img_rgb, slider_update, state_data, msg
@@ -1716,7 +1778,7 @@ def on_fusion_video_loaded(video_file, state_data):
     cap.release()
 
     first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if ret and frame_bgr is not None else INIT_GAUGE_FRAME
-    state_data["base_frame"] = first_frame
+    set_state_base_frame(state_data, first_frame, "fusion_base")
     state_data["total_frames"] = total_frames
     slider_update = gr.Slider(minimum=0, maximum=max(1, total_frames - 1), value=0, step=1, label="Khung hình video", interactive=True)
     msg = f"<div style='color:#22c55e;'>✅ <b>Đã tải video:</b> {Path(clean_path).name} ({total_frames} frames). Sẵn sàng phân tích tích hợp tuần tự 2 Model!</div>"
@@ -1740,7 +1802,7 @@ def on_fusion_camera_connect(cam_url, state_data):
     ret, frame_bgr = cap.read()
     cap.release()
     first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if ret and frame_bgr is not None else INIT_GAUGE_FRAME
-    state_data["base_frame"] = first_frame
+    set_state_base_frame(state_data, first_frame, "fusion_base")
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình Camera", interactive=False)
     msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_name}!</b> Bấm <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích ngập & giao thông trực tiếp.</div>"
     return first_frame, slider_update, state_data, msg
@@ -1757,7 +1819,7 @@ def on_fusion_seek_frame(slider_val, state_data):
     cap.release()
     if ret and frame_bgr is not None:
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        state_data["base_frame"] = frame_rgb
+        set_state_base_frame(state_data, frame_rgb, "fusion_base")
         state_data["current_frame_idx"] = int(slider_val)
         return frame_rgb, state_data
     return gr.skip(), state_data
@@ -1829,7 +1891,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
 
     # Trường hợp 1: Ảnh tĩnh
     if source_type == "image":
-        base_frame = state_data.get("base_frame") if state_data else None
+        base_frame = get_state_base_frame(state_data)
         if base_frame is None:
             LIVE_STREAM_STATE["active"] = False
             yield None, pd.DataFrame(), "<div style='color:red;'>⚠️ Vui lòng tải ảnh lên trước khi dự đoán!</div>", "<div style='color:red;'>⚠️ Chưa có ảnh hợp lệ</div>"
@@ -1998,9 +2060,8 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                     scale_ratio = 720.0 / w_f
                     final_hud_rgb = cv2.resize(final_hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
-                t_infer = time.time() - t_frame_start
-                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
-                time.sleep(max(0.015, target_delay - t_infer))
+                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
+                time.sleep(0.005)
 
                 summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
                 status_info = f"<div style='color:#38bdf8;'>🎬 Video ({cur_idx}/{total_frames}) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b> ({traffic_report.status_label})</div>"
@@ -2141,20 +2202,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         elem_id="tab5_calib_canvas"
                     )
                     tab5_setup_status = gr.HTML("", elem_id="tab5_setup_status")
-                    tab5_click_state = gr.State({
-                        "source_type": "video",
-                        "video_path": DEFAULT_GAUGE_VIDEO,
-                        "cam_source": None,
-                        "total_frames": INIT_TOTAL_FRAMES,
-                        "fps": INIT_FPS,
-                        "current_frame_idx": 0,
-                        "step": 0,
-                        "base_frame": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
-                        "p_bot": None,
-                        "p_mid": None,
-                        "p_top": None,
-                        "calib_mode": "3_points"
-                    })
+                    tab5_click_state = gr.State(DEFAULT_TAB5_STATE.copy())
                     tab5_seek_slider = gr.Slider(
                         minimum=0,
                         maximum=max(1, INIT_TOTAL_FRAMES - 1),
@@ -2251,17 +2299,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         "<div style='color:#38bdf8;'>💡 <b>Mẹo:</b> Nhấp <b>4 góc</b> trên màn hình để vẽ khung làn đường (chỉ tính xe đi vào khung). Khi đã đủ 4 góc, nhấp gần góc nào để kéo chỉnh lại góc đó!</div>",
                         elem_id="traffic_setup_status"
                     )
-                    traffic_state = gr.State({
-                        "source_type": "video",
-                        "video_path": DEFAULT_GAUGE_VIDEO,
-                        "cam_source": None,
-                        "cam_title": "Video mặc định",
-                        "total_frames": INIT_TOTAL_FRAMES,
-                        "fps": INIT_FPS,
-                        "current_frame_idx": 0,
-                        "base_frame": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
-                        "draft_roi_pts": [],
-                    })
+                    traffic_state = gr.State(DEFAULT_TRAFFIC_STATE.copy())
                     traffic_seek_slider = gr.Slider(
                         minimum=0,
                         maximum=max(1, INIT_TOTAL_FRAMES - 1),
