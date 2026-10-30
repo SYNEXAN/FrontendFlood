@@ -1404,8 +1404,8 @@ def get_video_info(video_path):
     return total_frames, fps, duration_s, w, h
 
 
-def extract_video_frame(video_path, frame_idx=0):
-    """Trích xuất 1 khung hình tại frame_idx từ file Video."""
+def extract_video_frame(video_path, frame_idx=0, max_w=640):
+    """Trích xuất 1 khung hình tại frame_idx từ file Video (tối ưu hiển thị max_w=640)."""
     clean_path = get_clean_filepath(video_path)
     if not clean_path:
         return None
@@ -1416,6 +1416,9 @@ def extract_video_frame(video_path, frame_idx=0):
     ret, frame = cap.read()
     cap.release()
     if ret and frame is not None:
+        if max_w is not None and frame.shape[1] > max_w:
+            h, w = frame.shape[:2]
+            frame = cv2.resize(frame, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
         return frame
     return None
 
@@ -1429,7 +1432,7 @@ def process_single_frame_gauge(frame_bgr, gauge, flood_model, flood_conf=0.25):
 
     if flood_model is not None:
         f_res = flood_model.predict(
-            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=800, retina_masks=True, device=INFER_DEVICE, verbose=False
+            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=640, retina_masks=False, device=INFER_DEVICE, verbose=False
         )[0]
         if f_res.masks is not None and len(f_res.masks.data) > 0:
             combined_gpu = torch.amax(f_res.masks.data, dim=0)
@@ -1475,7 +1478,7 @@ def process_single_frame_multi_gauge(frame_bgr, multi_manager, flood_model, floo
 
     if flood_model is not None:
         f_res = flood_model.predict(
-            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=800, retina_masks=True, device=INFER_DEVICE, verbose=False
+            frame_bgr, conf=float(flood_conf), iou=0.55, imgsz=640, retina_masks=False, device=INFER_DEVICE, verbose=False
         )[0]
         if f_res.masks is not None and len(f_res.masks.data) > 0:
             combined_gpu = torch.amax(f_res.masks.data, dim=0)

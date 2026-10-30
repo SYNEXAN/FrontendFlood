@@ -281,6 +281,23 @@ LIVE_STREAM_STATE = {
     "veh_conf": 0.35,
 }
 
+
+def frame_to_b64(frame_rgb, quality=75, max_w=640):
+    """
+    Chuyển đổi khung hình numpy (RGB) thành Base64 Data URL nhúng trực tiếp trong RAM.
+    Loại bỏ hoàn toàn I/O ghi đĩa tạm và request HTTP GET nhị phân thứ cấp qua Cloudflare Tunnel.
+    """
+    if frame_rgb is None:
+        return None
+    if isinstance(frame_rgb, str):
+        return frame_rgb
+    h, w = frame_rgb.shape[:2]
+    if w > max_w:
+        frame_rgb = cv2.resize(frame_rgb, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+    _, buf = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    return "data:image/jpeg;base64," + base64.b64encode(buf).decode('ascii')
+
 SERVER_FRAME_CACHE = {
     "tab5_base": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
     "traffic_base": extract_video_frame(DEFAULT_GAUGE_VIDEO, 0) if DEFAULT_GAUGE_VIDEO else None,
@@ -1081,7 +1098,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         )
         LIVE_STREAM_STATE["active"] = False
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-        yield hud_rgb, df, alarm_html, status_info
+        yield frame_to_b64(hud_rgb), df, alarm_html, status_info
         return
 
     # Trường hợp 2: Nguồn đầu vào là luồng Camera trực tiếp (RTSP/HTTP)
@@ -1136,7 +1153,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
 
                     status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
                     last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                    yield hud_rgb, df, alarm_html, status_info
+                    yield frame_to_b64(hud_rgb), df, alarm_html, status_info
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Frame {seq}: {frame_err}")
                     continue
@@ -1149,7 +1166,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 LIVE_STREAM_STATE["active"] = False
                 try:
                     if last_hud is not None:
-                        yield last_hud, last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera!</b></div>"
+                        yield frame_to_b64(last_hud), last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera!</b></div>"
                 except GeneratorExit:
                     return
         return
@@ -1203,6 +1220,10 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             render_cnt += 1
             try:
                 cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
                 hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
                     frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
@@ -1211,17 +1232,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
 
-                h_f, w_f = hud_rgb.shape[:2]
-                if w_f > 720:
-                    scale_ratio = 720.0 / w_f
-                    hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
-
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
                 time.sleep(0.005)
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
                 last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                yield hud_rgb, df, alarm_html, status_info
+                yield frame_to_b64(hud_rgb), df, alarm_html, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Frame {cur_idx}: {frame_err}")
                 continue
@@ -1235,7 +1250,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         LIVE_STREAM_STATE["active"] = False
         try:
             if last_hud is not None:
-                yield last_hud, last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Kết quả đo đạc cuối cùng đã được lưu giữ.</div>"
+                yield frame_to_b64(last_hud), last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Kết quả đo đạc cuối cùng đã được lưu giữ.</div>"
         except GeneratorExit:
             return
 
@@ -1563,7 +1578,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         )
         LIVE_STREAM_STATE["active"] = False
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count} xe</b></div>"
-        yield hud_rgb, df, alarm_html, status_info
+        yield frame_to_b64(hud_rgb), df, alarm_html, status_info
         return
 
     # Trường hợp 2: Luồng Camera RTSP / Live Stream
@@ -1610,7 +1625,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                         break
                     status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count}</b> | Tốc độ TB: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
                     last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                    yield hud_rgb, df, alarm_html, status_info
+                    yield frame_to_b64(hud_rgb), df, alarm_html, status_info
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Giao thông Frame {seq}: {frame_err}")
                     continue
@@ -1623,7 +1638,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                 LIVE_STREAM_STATE["active"] = False
                 try:
                     if last_hud is not None:
-                        yield last_hud, last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera giao thông!</b></div>"
+                        yield frame_to_b64(last_hud), last_df, last_alarm, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera giao thông!</b></div>"
                 except GeneratorExit:
                     return
         return
@@ -1681,6 +1696,10 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             video_sim_time_s = float(cur_idx) / float(fps_vid)
             try:
                 cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
                 hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
                     frame, vehicle_model, veh_conf=cur_conf, fps=fps_vid,
                     is_single_image=False, location_name=Path(video_path).name,
@@ -1689,17 +1708,11 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
 
-                h_f, w_f = hud_rgb.shape[:2]
-                if w_f > 720:
-                    scale_ratio = 720.0 / w_f
-                    hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
-
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
                 time.sleep(0.005)
 
                 status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count}</b> | Tốc độ TB: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
                 last_hud, last_df, last_alarm = hud_rgb, df, alarm_html
-                yield hud_rgb, df, alarm_html, status_info
+                yield frame_to_b64(hud_rgb), df, alarm_html, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Traffic Frame {cur_idx}: {frame_err}")
                 continue
@@ -1913,7 +1926,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         LIVE_STREAM_STATE["active"] = False
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Phương tiện: <b>{traffic_report.vehicle_count} xe</b> ({traffic_report.status_label})</div>"
-        yield final_hud_rgb, summary_df, alert_html, status_info
+        yield frame_to_b64(final_hud_rgb), summary_df, alert_html, status_info
         return
 
     # Trường hợp 2: Camera RTSP / Streaming
@@ -1965,7 +1978,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                     summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
                     status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b> ({traffic_report.status_label})</div>"
                     last_hud, last_df, last_alert = final_hud_rgb, summary_df, alert_html
-                    yield final_hud_rgb, summary_df, alert_html, status_info
+                    yield frame_to_b64(final_hud_rgb), summary_df, alert_html, status_info
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Fusion Frame {seq}: {frame_err}")
                     continue
@@ -1978,7 +1991,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 LIVE_STREAM_STATE["active"] = False
                 try:
                     if last_hud is not None:
-                        yield last_hud, last_df, last_alert, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera tích hợp!</b></div>"
+                        yield frame_to_b64(last_hud), last_df, last_alert, "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera tích hợp!</b></div>"
                 except GeneratorExit:
                     return
         return
@@ -2037,6 +2050,10 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
                 cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
                 flood_hud_rgb, flood_df, flood_alarm_html, flood_report = process_single_frame_hybrid(
                     frame, global_multi_gauge_manager, global_tab5_arbiter,
                     active_flood, None,
@@ -2055,18 +2072,12 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                     break
 
-                h_f, w_f = final_hud_rgb.shape[:2]
-                if w_f > 720:
-                    scale_ratio = 720.0 / w_f
-                    final_hud_rgb = cv2.resize(final_hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
-
-                # Giảm thời gian chờ để GPU streaming mượt mà ở FPS tự nhiên
                 time.sleep(0.005)
 
                 summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
                 status_info = f"<div style='color:#38bdf8;'>🎬 Video ({cur_idx}/{total_frames}) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b> ({traffic_report.status_label})</div>"
                 last_hud, last_df, last_alert = final_hud_rgb, summary_df, alert_html
-                yield final_hud_rgb, summary_df, alert_html, status_info
+                yield frame_to_b64(final_hud_rgb), summary_df, alert_html, status_info
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Video Fusion Frame {cur_idx}: {frame_err}")
                 continue
@@ -2080,7 +2091,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         LIVE_STREAM_STATE["active"] = False
         try:
             if last_hud is not None:
-                yield last_hud, last_df, last_alert, "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video tích hợp!</b></div>"
+                yield frame_to_b64(last_hud), last_df, last_alert, "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video tích hợp!</b></div>"
         except GeneratorExit:
             return
 
@@ -2139,6 +2150,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             )
                         with gr.TabItem("Video", id="input_video") as tab_input_video:
                             tab5_upload_video = gr.Video(
+                                value=DEFAULT_GAUGE_VIDEO,
                                 label="Tải video",
                                 interactive=True
                             )
@@ -2252,6 +2264,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             )
                         with gr.TabItem("Video", id="traffic_input_video") as tab_traffic_video:
                             traffic_upload_video = gr.Video(
+                                value=DEFAULT_GAUGE_VIDEO,
                                 label="Tải video",
                                 interactive=True
                             )
@@ -2333,6 +2346,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             )
                         with gr.TabItem("Video", id="fusion_input_video") as tab_fusion_video:
                             fusion_upload_video = gr.Video(
+                                value=DEFAULT_GAUGE_VIDEO,
                                 label="Tải video",
                                 interactive=True
                             )

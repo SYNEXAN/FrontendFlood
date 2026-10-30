@@ -647,6 +647,11 @@
         localStorage.removeItem("flood_ngrok_url");
         savedUrl = null;
       }
+      // Tự động đồng bộ với URL Cloudflare tunnel mới nhất từ máy chủ
+      if (savedUrl && DEFAULT_CONFIG.ngrokUrl && savedUrl !== DEFAULT_CONFIG.ngrokUrl) {
+        localStorage.removeItem("flood_ngrok_url");
+        savedUrl = DEFAULT_CONFIG.ngrokUrl;
+      }
       return {
         token: localStorage.getItem("flood_kaggle_token") || DEFAULT_CONFIG.kaggleToken,
         user: localStorage.getItem("flood_kaggle_user") || DEFAULT_CONFIG.username,
