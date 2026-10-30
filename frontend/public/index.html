@@ -571,7 +571,7 @@
   <!-- Giao diện nguyên bản từ Model Backend -->
   <iframe 
     id="app-frame" 
-    src="https://alignment-episodes-charts-adjustments.trycloudflare.com" 
+    src="" 
     allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
     title="AI Urban Flood & Traffic Congestion Monitor">
   </iframe>
@@ -605,7 +605,7 @@
 
       <div class="form-group">
         <label class="form-label">Endpoint URL (Giao diện API Model)</label>
-        <input type="url" id="inputNgrokUrl" class="form-input" placeholder="https://alignment-episodes-charts-adjustments.trycloudflare.com">
+        <input type="url" id="inputNgrokUrl" class="form-input" placeholder="https://your-tunnel.trycloudflare.com">
         <div class="form-tip">Đường dẫn máy chủ trực tiếp kết nối tới mô hình.</div>
       </div>
 
@@ -635,23 +635,13 @@
       username: "nguynvlun",
       kernelSlug: "floodkaggleapi",
       kernelTitle: "Flood Kaggle API",
-      ngrokUrl: "https://alignment-episodes-charts-adjustments.trycloudflare.com",
+      ngrokUrl: "",
       notebookUrl: "./floodkaggleapi.ipynb",
-      fallbackNotebookUrl: "https://raw.githubusercontent.com/Luan2004/FontendFlood/main/floodkaggleapi.ipynb"
+      fallbackNotebookUrl: "https://raw.githubusercontent.com/SYNEXAN/FrontendFlood/main/notebooks/synexan_flood_gpu.ipynb"
     };
 
     function getConfig() {
-      let savedUrl = localStorage.getItem("flood_ngrok_url");
-      // Tự động giải phóng ngrok domain cũ khi đã chuyển sang Cloudflare
-      if (savedUrl && savedUrl.includes("ngrok-free.dev")) {
-        localStorage.removeItem("flood_ngrok_url");
-        savedUrl = null;
-      }
-      // Tự động đồng bộ với URL Cloudflare tunnel mới nhất từ máy chủ
-      if (savedUrl && DEFAULT_CONFIG.ngrokUrl && savedUrl !== DEFAULT_CONFIG.ngrokUrl) {
-        localStorage.removeItem("flood_ngrok_url");
-        savedUrl = DEFAULT_CONFIG.ngrokUrl;
-      }
+      const savedUrl = localStorage.getItem("flood_backend_url") || localStorage.getItem("flood_ngrok_url");
       return {
         token: localStorage.getItem("flood_kaggle_token") || DEFAULT_CONFIG.kaggleToken,
         user: localStorage.getItem("flood_kaggle_user") || DEFAULT_CONFIG.username,
@@ -660,19 +650,33 @@
       };
     }
 
-    // Tự động đồng bộ URL Backend mới nhất từ Server Render
-    fetch("/api/config")
-      .then(res => res.json())
-      .then(cfg => {
-        if (cfg && cfg.defaultBackendUrl) {
-          DEFAULT_CONFIG.ngrokUrl = cfg.defaultBackendUrl;
-          const currentConfig = getConfig();
-          if (frame && currentConfig.ngrok && frame.src !== currentConfig.ngrok) {
-            frame.src = currentConfig.ngrok;
+    // Tự động Polling nhận URL mới nhất từ Kaggle gửi về Render Server
+    let lastKnownBackendUrl = "";
+    async function syncBackendConfig() {
+      try {
+        const res = await fetch("/api/config", { cache: "no-store" });
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+            const cleanUrl = cfg.defaultBackendUrl.trim().replace(/\/+$/, "");
+            if (cleanUrl !== lastKnownBackendUrl) {
+              lastKnownBackendUrl = cleanUrl;
+              DEFAULT_CONFIG.ngrokUrl = cleanUrl;
+              localStorage.setItem("flood_backend_url", cleanUrl);
+              if (frame && frame.src !== cleanUrl) {
+                frame.src = cleanUrl;
+                showToast("🚀 Đã tự động kết nối Backend GPU từ Cloudflare!", "success");
+              }
+              checkBackendOnline();
+            }
           }
         }
-      })
-      .catch(() => {});
+      } catch (e) {}
+    }
+
+    // Bật Polling tự động mỗi 3 giây
+    setInterval(syncBackendConfig, 3000);
+    syncBackendConfig();
 
     // ========================================================================
     // DOM ELEMENTS

@@ -5,7 +5,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://alignment-episodes-charts-adjustments.trycloudflare.com";
+const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "";
 let activeBackendUrl = DEFAULT_BACKEND_URL;
 
 app.use(cors());
