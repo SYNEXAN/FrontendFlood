@@ -180,6 +180,7 @@
 
     /* FULLSCREEN LOADING & CONNECTION OVERLAY */
     #loading-overlay {
+    display: none !important;
       position: fixed;
       inset: 0;
       background: radial-gradient(circle at 50% 20%, #172554 0%, #090d16 80%);
@@ -554,10 +555,6 @@
     </div>
 
     <!-- Nút Kết Nối API Model -->
-    <button id="btnConnectApiTop" class="btn-action btn-primary-glow" title="Khởi động và kết nối API Model">
-      <i class="fa-solid fa-bolt"></i>
-      <span id="btnConnectApiTopText">Kết nối API Model</span>
-    </button>
 
     <!-- Nút Tải lại Iframe -->
     <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
@@ -570,67 +567,7 @@
     </button>
   </div>
 
-  <!-- LOADING & ACTIVATION OVERLAY -->
-  <div id="loading-overlay">
-    <div class="overlay-card">
-      <div class="brand-icon-box">
-        🌊
-      </div>
-      
-      <div class="status-text">AI Urban Flood & Traffic Monitor</div>
-      <div class="sub-text" id="overlaySubText">
-        Hệ thống AI giám sát độ sâu ngập lụt đô thị và lưu lượng giao thông.
-      </div>
-
-      <!-- Nút Kết Nối API Model Chính -->
-      <button id="btnConnectApiOverlay" class="btn-connect-large">
-        <i class="fa-solid fa-bolt"></i>
-        <span id="btnConnectApiOverlayText">KẾT NỐI API MODEL</span>
-      </button>
-
-      <!-- Các Bước Thực Thi Khi Chạy API Model -->
-      <div class="steps-container" id="stepsContainer">
-        <div class="step-item" id="step-1">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">1. Khởi tạo phiên làm việc API Model...</div>
-        </div>
-        <div class="step-item" id="step-2">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">2. Cấp phát tài nguyên máy chủ Model...</div>
-        </div>
-        <div class="step-item" id="step-3">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">3. Nạp trọng số mô hình AI & tối ưu hóa...</div>
-        </div>
-        <div class="step-item" id="step-4">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">4. Thiết lập kết nối API Model & giao diện...</div>
-        </div>
-      </div>
-
-      <!-- Fallback Command -->
-      <div class="cmd-badge-wrapper" id="cmdBadgeWrapper">
-        <span style="font-size: 12px; color: #64748b;">Khởi động nhanh từ Terminal:</span>
-        <div class="cmd-badge">
-          <i class="fa-solid fa-terminal" style="font-size: 10px;"></i>
-          <code>start-model</code>
-        </div>
-      </div>
-
-      <!-- Quick Action: Vào giao diện ngay hoặc Mở tab riêng -->
-      <div style="display: flex; gap: 10px; margin-top: 14px; width: 100%;">
-        <button id="btnEnterAppDirectly" class="btn-action btn-primary-glow" style="flex: 1; justify-content: center; padding: 10px 14px; border-radius: 8px;">
-          <i class="fa-solid fa-arrow-right-to-bracket"></i>
-          <span>Vào Giao Diện Ngay</span>
-        </button>
-        <a id="btnOpenNgrokTab" href="https://hush-harmless-erased.ngrok-free.dev" target="_blank" class="btn-action" style="background: rgba(255,255,255,0.08); color: #cbd5e1; text-decoration: none; justify-content: center; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
-          <i class="fa-solid fa-arrow-up-right-from-square"></i>
-          <span>Mở Tab Riêng</span>
-        </a>
-      </div>
-    </div>
-  </div>
-
+  <!-- 100% Direct Gradio Interface Embed (No Interstitial Overlay) -->
   <!-- Giao diện nguyên bản từ Model Backend -->
   <iframe 
     id="app-frame" 
@@ -722,15 +659,15 @@
     // Top Floating Bar
     const topStatusDot = document.getElementById("topStatusDot");
     const topStatusText = document.getElementById("topStatusText");
-    const btnConnectApiTop = document.getElementById("btnConnectApiTop");
-    const btnConnectApiTopText = document.getElementById("btnConnectApiTopText");
+    const btnConnectApiTop = document.getElementById("btnConnectApiTop") || document.createElement("button");
+    const btnConnectApiTopText = document.getElementById("btnConnectApiTopText") || document.createElement("span");
     const btnReloadFrame = document.getElementById("btnReloadFrame");
     const btnOpenSettings = document.getElementById("btnOpenSettings");
     const btnStatusPill = document.getElementById("btnStatusPill");
 
     // Overlay Elements
-    const btnConnectApiOverlay = document.getElementById("btnConnectApiOverlay");
-    const btnConnectApiOverlayText = document.getElementById("btnConnectApiOverlayText");
+    const btnConnectApiOverlay = document.getElementById("btnConnectApiOverlay") || document.createElement("button");
+    const btnConnectApiOverlayText = document.getElementById("btnConnectApiOverlayText") || document.createElement("span");
     const stepsContainer = document.getElementById("stepsContainer");
     const cmdBadgeWrapper = document.getElementById("cmdBadgeWrapper");
 
@@ -1161,6 +1098,7 @@
     btnConnectApiOverlay.addEventListener("click", startKaggleNotebookExecution);
 
     const btnEnterAppDirectly = document.getElementById("btnEnterAppDirectly");
+    if (btnEnterAppDirectly) {
     if (btnEnterAppDirectly) {
       btnEnterAppDirectly.addEventListener("click", () => {
         const config = getConfig();
