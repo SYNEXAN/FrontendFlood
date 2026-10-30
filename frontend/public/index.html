@@ -808,23 +808,6 @@
       updateStatusUI("offline", "🔴 Backend GPU: Offline");
       return false;
     }
-      } catch (err) {
-        try {
-          await fetch(`${config.ngrok}/favicon.ico`, { mode: "no-cors", cache: "no-store" });
-          updateStatusUI("online", "🟢 Backend GPU: Online");
-          return true;
-        } catch(e) {}
-
-        updateStatusUI("offline", "🔴 Backend GPU: Offline");
-        return false;
-      }
-    }
-        }
-      } catch (e) {
-        console.warn("Status check error:", e);
-      }
-      return false;
-    }
 
     // ========================================================================
     // GỌI KHỞI ĐỘNG VÀ KẾT NỐI API MODEL
@@ -1129,7 +1112,6 @@
     btnConnectApiOverlay.addEventListener("click", startKaggleNotebookExecution);
 
     const btnEnterAppDirectly = document.getElementById("btnEnterAppDirectly");
-    if (btnEnterAppDirectly) {
     if (btnEnterAppDirectly) {
       btnEnterAppDirectly.addEventListener("click", () => {
         const config = getConfig();

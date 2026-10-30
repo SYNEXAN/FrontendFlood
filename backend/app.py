@@ -1078,9 +1078,9 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                     if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                         break
                     h_f, w_f = hud_rgb.shape[:2]
-                    if w_f > 960:
-                        scale_ratio = 960.0 / w_f
-                        hud_rgb = cv2.resize(hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
+                    if w_f > 720:
+                        scale_ratio = 720.0 / w_f
+                        hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
                     if render_cnt == 1 or (render_cnt % 4) == 0:
                         status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
                         yield hud_rgb, df, alarm_html, status_info
@@ -1165,14 +1165,14 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                     break
 
                 h_f, w_f = hud_rgb.shape[:2]
-                if w_f > 960:
-                    scale_ratio = 960.0 / w_f
-                    hud_rgb = cv2.resize(hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
+                if w_f > 720:
+                    scale_ratio = 720.0 / w_f
+                    hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
                 # Điều tiết nhịp phát Realtime (FPS Pacing) tránh nghẽn đường truyền Ngrok
                 t_infer = time.time() - t_frame_start
-                target_delay = 1.0 / max(10.0, min(30.0, float(cap.get(cv2.CAP_PROP_FPS) or 25.0)))
-                time.sleep(max(0.012, target_delay - t_infer))
+                target_delay = float(step) / max(10.0, min(30.0, float(cap.get(cv2.CAP_PROP_FPS) or 25.0)))
+                time.sleep(max(0.015, target_delay - t_infer))
 
                 if render_cnt == 1 or (render_cnt % 3) == 0:
                     status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
@@ -1629,7 +1629,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 1  # Bắt trọn vẹn 100% khung hình video, đảm bảo liên tục quỹ đạo cho phương tiện tốc độ cao
+    step = 2  # Nhảy bước 2 để tối ưu hóa truyền dẫn thời gian thực qua Ngrok
     render_cnt = 0
 
     try:
@@ -1659,14 +1659,14 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
 
                 # Tối ưu kích thước hiển thị chống nghẽn Ngrok
                 h_f, w_f = hud_rgb.shape[:2]
-                if w_f > 960:
-                    scale_ratio = 960.0 / w_f
-                    hud_rgb = cv2.resize(hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
+                if w_f > 720:
+                    scale_ratio = 720.0 / w_f
+                    hud_rgb = cv2.resize(hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
                 # Điều tiết nhịp phát Realtime (FPS Pacing)
                 t_infer = time.time() - t_frame_start
-                target_delay = 1.0 / max(10.0, min(30.0, float(fps_vid)))
-                time.sleep(max(0.012, target_delay - t_infer))
+                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
+                time.sleep(max(0.015, target_delay - t_infer))
 
                 if render_cnt == 1 or (render_cnt % 3) == 0:
                     status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Trạng thái: <b>{report.status_label}</b> | Số xe: <b>{report.vehicle_count}</b> | Tốc độ TB: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
@@ -2005,7 +2005,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 1
+    step = 2
     render_cnt = 0
 
     try:
@@ -2016,6 +2016,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
             if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
                 break
 
+            t_frame_start = time.time()
             cur_idx += 1
             if (cur_idx % step) != 0:
                 continue
@@ -2048,14 +2049,14 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
 
                 # Tối ưu kích thước hiển thị chống nghẽn Ngrok
                 h_f, w_f = final_hud_rgb.shape[:2]
-                if w_f > 960:
-                    scale_ratio = 960.0 / w_f
-                    final_hud_rgb = cv2.resize(final_hud_rgb, (960, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
+                if w_f > 720:
+                    scale_ratio = 720.0 / w_f
+                    final_hud_rgb = cv2.resize(final_hud_rgb, (720, int(h_f * scale_ratio)), interpolation=cv2.INTER_AREA)
 
                 # Điều tiết nhịp phát Realtime (FPS Pacing)
                 t_infer = time.time() - t_frame_start
-                target_delay = 1.0 / max(10.0, min(30.0, float(fps_vid)))
-                time.sleep(max(0.012, target_delay - t_infer))
+                target_delay = float(step) / max(10.0, min(30.0, float(fps_vid)))
+                time.sleep(max(0.015, target_delay - t_infer))
 
                 summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
 
@@ -2192,6 +2193,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     tab5_calib_canvas = gr.Image(
                         value=tab5_init_frame,
                         type="numpy",
+                        format="jpeg",
                         show_label=False,
                         interactive=False,
                         elem_id="tab5_calib_canvas"
@@ -2298,6 +2300,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     traffic_canvas = gr.Image(
                         value=INIT_GAUGE_FRAME,
                         type="numpy",
+                        format="jpeg",
                         show_label=False,
                         interactive=False,
                         elem_id="traffic_canvas"
@@ -2392,6 +2395,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     fusion_canvas = gr.Image(
                         value=INIT_GAUGE_FRAME,
                         type="numpy",
+                        format="jpeg",
                         show_label=False,
                         interactive=False,
                         elem_id="fusion_canvas"
