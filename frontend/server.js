@@ -1,7 +1,6 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
-const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -31,55 +30,42 @@ app.get('/api/config', (req, res) => {
     });
 });
 
-// Server-side Heartbeat Status Check (Tránh hoàn toàn lỗi CORS của trình duyệt)
-app.get('/api/status', (req, res) => {
+// Server-side Heartbeat Status Check (Dùng fetch an toàn, tránh 100% lỗi ERR_HTTP_HEADERS_SENT)
+app.get('/api/status', async (req, res) => {
     const targetUrl = req.query.target || activeBackendUrl;
-    let checkUrl = targetUrl;
-    if (!checkUrl.endsWith('/config')) {
-        checkUrl = checkUrl.replace(/\/+$/, '') + '/config';
+    if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+        return res.json({ online: false, error: 'Chưa có URL Backend nào được cấu hình' });
     }
 
+    let checkUrl = targetUrl.replace(/\/+$/, '') + '/config';
     const t0 = Date.now();
+
     try {
-        const urlObj = new URL(checkUrl);
-        const reqOptions = {
-            hostname: urlObj.hostname,
-            port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
-            path: urlObj.pathname,
+        const response = await fetch(checkUrl, {
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'ngrok-skip-browser-warning': 'true'
             },
-            timeout: 5000
-        };
-
-        const clientReq = https.request(reqOptions, (backendRes) => {
-            const latencyMs = Date.now() - t0;
-            if (backendRes.statusCode >= 200 && backendRes.statusCode < 400) {
-                res.json({ online: true, statusCode: backendRes.statusCode, latencyMs });
-            } else {
-                res.json({ online: false, statusCode: backendRes.statusCode, latencyMs });
-            }
+            signal: AbortSignal.timeout(5000)
         });
 
-        clientReq.on('timeout', () => {
-            clientReq.destroy();
-            res.json({ online: false, error: 'timeout' });
+        const latencyMs = Date.now() - t0;
+        return res.json({
+            online: response.ok,
+            statusCode: response.status,
+            latencyMs
         });
-
-        clientReq.on('error', (err) => {
-            res.json({ online: false, error: err.message });
-        });
-
-        clientReq.end();
     } catch (err) {
-        res.json({ online: false, error: err.message });
+        return res.json({
+            online: false,
+            error: err.name === 'TimeoutError' ? 'timeout' : err.message
+        });
     }
 });
 
 // Secure Server-side Auto-Wake Endpoint (No CORS issue, No leaked credentials)
-app.post('/api/wake-up', (req, res) => {
+app.post('/api/wake-up', async (req, res) => {
     const username = process.env.KAGGLE_USERNAME;
     const key = process.env.KAGGLE_KEY;
 
@@ -90,45 +76,33 @@ app.post('/api/wake-up', (req, res) => {
         });
     }
 
-    // Call Kaggle API securely
     const kernelId = process.env.KAGGLE_KERNEL_ID || `${username}/synexan-flood-backend-gpu`;
-    const postData = JSON.stringify({
-        id: kernelId
-    });
-
+    const postData = JSON.stringify({ id: kernelId });
     const auth = Buffer.from(`${username}:${key}`).toString('base64');
-    const options = {
-        hostname: 'www.kaggle.com',
-        port: 443,
-        path: '/api/v1/kernels/push',
-        method: 'POST',
-        headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(postData)
-        }
-    };
 
-    const request = https.request(options, (response) => {
-        let data = '';
-        response.on('data', chunk => { data += chunk; });
-        response.on('end', () => {
-            console.log("[INFO] Kaggle API response:", response.statusCode, data);
-            res.json({
-                status: "trigger_sent",
-                statusCode: response.statusCode,
-                message: "Auto-wake signal dispatched to Kaggle GPU."
-            });
+    try {
+        const kaggleRes = await fetch('https://www.kaggle.com/api/v1/kernels/push', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(postData).toString()
+            },
+            body: postData,
+            signal: AbortSignal.timeout(10000)
         });
-    });
 
-    request.on('error', (err) => {
+        const data = await kaggleRes.text();
+        console.log("[INFO] Kaggle API response:", kaggleRes.status, data);
+        return res.json({
+            status: "trigger_sent",
+            statusCode: kaggleRes.status,
+            message: "Auto-wake signal dispatched to Kaggle GPU."
+        });
+    } catch (err) {
         console.error("[ERROR] Kaggle wake request failed:", err);
-        res.status(500).json({ status: "error", error: err.message });
-    });
-
-    request.write(postData);
-    request.end();
+        return res.status(500).json({ status: "error", error: err.message });
+    }
 });
 
 // Fallback all routes to index.html for SPA
@@ -136,7 +110,7 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Flood Demo Frontend Server running on port ${PORT}`);
-    console.log(`📡 Default AI Backend target: ${activeBackendUrl}`);
+    console.log(`📡 Default AI Backend target: ${activeBackendUrl || "(Chưa có URL)"}`);
 });
