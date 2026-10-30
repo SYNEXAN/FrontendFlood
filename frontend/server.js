@@ -5,7 +5,8 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-let activeBackendUrl = process.env.DEFAULT_BACKEND_URL || "https://rocky-spot-tom-recognition.trycloudflare.com";
+const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://rocky-spot-tom-recognition.trycloudflare.com";
+let activeBackendUrl = DEFAULT_BACKEND_URL;
 
 app.use(cors());
 app.use(express.json());
@@ -137,5 +138,5 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Flood Demo Frontend Server running on port ${PORT}`);
-    console.log(`📡 Default AI Backend target: ${DEFAULT_BACKEND_URL}`);
+    console.log(`📡 Default AI Backend target: ${activeBackendUrl}`);
 });
