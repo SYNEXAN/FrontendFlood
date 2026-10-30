@@ -1,0 +1,13 @@
+{
+  "name": "flood-demo-frontend",
+  "version": "2.0.0",
+  "description": "AI Urban Flood and Traffic Monitoring Frontend Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}

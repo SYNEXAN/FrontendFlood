@@ -1,0 +1,34 @@
+name: Auto-Wake Kaggle GPU Backend
+
+on:
+  repository_dispatch:
+    types: [wake-kaggle]
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Kaggle CLI
+        run: |
+          pip install --upgrade kaggle
+
+      - name: Authenticate Kaggle & Trigger Kernel Run
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          mkdir -p ~/.kaggle
+          echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          
+          echo "🚀 Triggering Kaggle Kernel: nguynvlun/floodkaggleapi..."
+          kaggle kernels push -p notebooks

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Giám Sát Ngập Lụt & Giao Thông Đô Thị - SYNEXAN</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#ecfeff',
+                            500: '#06b6d4',
+                            600: '#0891b2',
+                            900: '#164e63',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                    <i data-lucide="waves" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold tracking-widest text-cyan-400 uppercase">SYNEXAN AI LAB</span>
+                        <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">v2.0</span>
+                    </div>
+                    <h1 class="text-sm sm:text-base font-bold text-white tracking-tight">HỆ THỐNG GIÁM SÁT NGẬP LỤT & ÙN TẮC ĐÔ THỊ</h1>
+                </div>
+            </div>
+
+            <!-- Header Actions & Status Badge -->
+            <div class="flex items-center gap-3">
+                <div id="backend-status-badge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <span id="status-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                    <span id="status-text">AI Backend: Đang kiểm tra...</span>
+                </div>
+
+                <button id="open-settings-btn" title="Cấu hình Backend URL" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+
+        <!-- Global Dual Alarm Banner (Hidden by default) -->
+        <div id="dual-alarm-banner" class="hidden rounded-2xl bg-gradient-to-r from-rose-950/80 via-red-900/60 to-rose-950/80 border-2 border-red-500/80 p-4 dual-alarm-active transition-all duration-300">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-red-600/30 border border-red-500 flex items-center justify-center animate-bounce">
+                        <i data-lucide="alert-triangle" class="w-7 h-7 text-red-400"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold uppercase tracking-wider text-red-300">CẢNH BÁO KHẨN CẤP ĐÔ THỊ</div>
+                        <div id="dual-alarm-msg" class="text-lg font-extrabold text-white">🚨 BÁO ĐỘNG KÉP: NƯỚC NGẬP SÂU KÈM ÙN TẮC GIAO THÔNG NGHIÊM TRỌNG</div>
+                        <p class="text-xs text-red-200/80">Khuyến nghị các phương tiện xe máy chuyển hướng di chuyển ngay lập tức.</p>
+                    </div>
+                </div>
+                <div class="hidden sm:flex items-center gap-2">
+                    <span class="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse">
+                        MỨC ĐỘ NGUY HIỂM CAO
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs Bar -->
+        <div class="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/80 border border-slate-800 w-fit self-center sm:self-start">
+            <button id="btn-tab_fusion" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-lg shadow-cyan-500/10">
+                <i data-lucide="activity" class="w-4 h-4"></i>
+                <span>Tab 3: Dual Fusion Realtime</span>
+            </button>
+            <button id="btn-tab_flood" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+                <i data-lucide="droplets" class="w-4 h-4"></i>
+                <span>Tab 1: Giám Sát Ngập & Thước Đo</span>
+            </button>
+            <button id="btn-tab_traffic" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
+                <i data-lucide="car" class="w-4 h-4"></i>
+                <span>Tab 2: Phân Tích Phương Tiện</span>
+            </button>
+        </div>
+
+        <!-- TAB 3: DUAL FUSION REALTIME PANE -->
+        <section id="pane-tab_fusion" class="flex flex-col gap-6">
+            <!-- Grid: Left Video / Right Stream Control -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Video / Stream Viewport -->
+                <div class="lg:col-span-2 glass-panel rounded-2xl p-4 flex flex-col gap-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="video" class="w-5 h-5 text-cyan-400"></i>
+                            <h2 class="font-bold text-white text-base">MÀN HÌNH GIÁM SÁT TRỰC TIẾP (CCTV / RTSP)</h2>
+                        </div>
+                        <span id="stream-status-indicator" class="text-xs text-slate-400 font-medium">⚪ Sẵn sàng kết nối</span>
+                    </div>
+
+                    <!-- Stream Visual Canvas / Img -->
+                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+                        <img id="stream-video-element" class="hidden w-full h-full object-contain" alt="Live Camera Feed">
+                        
+                        <!-- Initial Placeholder -->
+                        <div id="fusion-stream-placeholder" class="flex flex-col items-center gap-3 text-slate-500">
+                            <i data-lucide="tv" class="w-12 h-12 stroke-1"></i>
+                            <p class="text-sm">Chưa kết nối luồng camera. Nhập URL RTSP bên phải và bấm "Xem Trực Tiếp".</p>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Badges row -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
+                            <div class="text-[11px] font-medium text-slate-400">MỰC NƯỚC ĐO ĐƯỢC</div>
+                            <div id="fusion-kpi-depth" class="text-2xl font-bold text-cyan-400">-- cm</div>
+                        </div>
+                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
+                            <div class="text-[11px] font-medium text-slate-400">SỐ PHƯƠNG TIỆN</div>
+                            <div id="fusion-kpi-vehicles" class="text-2xl font-bold text-white">-- xe</div>
+                        </div>
+                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
+                            <div class="text-[11px] font-medium text-slate-400">LƯU LƯỢNG (PCU)</div>
+                            <div id="fusion-kpi-pcu" class="text-2xl font-bold text-amber-400">-- PCU</div>
+                        </div>
+                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
+                            <div class="text-[11px] font-medium text-slate-400">MỨC ĐỘ ÙN TẮC</div>
+                            <div id="fusion-kpi-congestion" class="text-xl font-bold text-slate-300">BÌNH THƯỜNG</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Control Panel -->
+                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-5 justify-between">
+                    <div class="flex flex-col gap-4">
+                        <div class="flex items-center gap-2 border-b border-slate-800 pb-3">
+                            <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
+                            <h3 class="font-bold text-white text-sm">ĐIỀU KHIỂN LUỒNG & AI PIPELINE</h3>
+                        </div>
+
+                        <!-- Camera Source Selection -->
+                        <div class="flex flex-col gap-2">
+                            <label class="text-xs font-semibold text-slate-300">Nguồn Luồng Camera (RTSP / Video URL):</label>
+                            <input id="stream-source-url" type="text" placeholder="rtsp://... hoặc https://..." value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
+                        </div>
+
+                        <div class="flex flex-col gap-2">
+                            <span class="text-xs text-slate-400 font-medium">Hoặc kiểm tra nhanh bằng ảnh tĩnh:</span>
+                            <div id="fusion-dropzone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-4 text-center cursor-pointer transition-colors">
+                                <i data-lucide="upload-cloud" class="w-6 h-6 mx-auto mb-1 text-slate-400"></i>
+                                <span class="text-xs text-slate-300">Kéo thả ảnh hoặc <span class="text-cyan-400 font-semibold">Tải lên</span></span>
+                                <input id="fusion-file-input" type="file" accept="image/*" class="hidden">
+                            </div>
+                            <img id="fusion-preview-img" class="hidden max-h-32 object-contain rounded-lg border border-slate-700" alt="Preview">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-3">
+                        <button id="fusion-run-btn" disabled class="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                            <span id="fusion-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                            <span>PHÂN TÍCH ẢNH DUAL FUSION</span>
+                        </button>
+
+                        <button id="start-stream-btn" class="w-full py-3 px-4 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2">
+                            <i data-lucide="play" class="w-4 h-4"></i>
+                            <span>BẬT XEM CAMERA TRỰC TIẾP</span>
+                        </button>
+                        <button id="stop-stream-btn" class="hidden w-full py-3 px-4 rounded-xl font-bold text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2">
+                            <i data-lucide="square" class="w-4 h-4"></i>
+                            <span>DỪNG LUỒNG CAMERA</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 1: FLOOD & STAFF GAUGE -->
+        <section id="pane-tab_flood" class="hidden flex flex-col gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Upload & Options -->
+                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+                    <h3 class="font-bold text-white text-base flex items-center gap-2">
+                        <i data-lucide="droplets" class="w-5 h-5 text-cyan-400"></i>
+                        <span>TẢI ẢNH NGẬP LỤT ĐỂ ĐO MỰC NƯỚC</span>
+                    </h3>
+                    <div id="flood-dropzone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-8 text-center cursor-pointer transition-colors">
+                        <i data-lucide="upload" class="w-10 h-10 mx-auto mb-2 text-cyan-400"></i>
+                        <p class="text-sm font-semibold text-slate-200">Chọn ảnh có vạch ngập nước hoặc cọc tiêu đo nước</p>
+                        <p class="text-xs text-slate-400 mt-1">Hỗ trợ JPG, PNG định dạng chất lượng cao</p>
+                        <input id="flood-file-input" type="file" accept="image/*" class="hidden">
+                    </div>
+                    <img id="flood-preview-img" class="hidden max-h-64 object-contain rounded-xl border border-slate-800" alt="Preview">
+                    <button id="flood-run-btn" disabled class="w-full py-3 rounded-xl font-bold text-sm bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+                        <span id="flood-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                        <span>ĐO MỰC NƯỚC THEO CỌC TIÊU (CM)</span>
+                    </button>
+                </div>
+
+                <!-- Flood Results View -->
+                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+                    <h3 class="font-bold text-white text-base">KẾT QUẢ ĐO ĐẠC MỰC NƯỚC</h3>
+                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+                        <img id="flood-output-img" class="hidden w-full h-full object-contain" alt="Output Flood">
+                        <div id="flood-output-placeholder" class="text-slate-500 text-sm">Chưa có kết quả phân tích</div>
+                    </div>
+                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <span class="text-xs text-slate-400">ĐỘ SÂU NGẬP NƯỚC TÍNH TOÁN:</span>
+                            <div id="flood-kpi-depth" class="text-3xl font-extrabold text-cyan-400">-- cm</div>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs text-slate-400">PHƯƠNG PHÁP ĐO:</span>
+                            <div class="text-sm font-bold text-white">Staff Gauge Virtual Ruler</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: TRAFFIC & VEHICLE CONGESTION -->
+        <section id="pane-tab_traffic" class="hidden flex flex-col gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Upload & Options -->
+                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+                    <h3 class="font-bold text-white text-base flex items-center gap-2">
+                        <i data-lucide="car" class="w-5 h-5 text-amber-400"></i>
+                        <span>TẢI ẢNH GIAO THÔNG ĐÔ THỊ</span>
+                    </h3>
+                    <div id="traffic-dropzone" class="border-2 border-dashed border-slate-700 hover:border-amber-500 rounded-xl p-8 text-center cursor-pointer transition-colors">
+                        <i data-lucide="truck" class="w-10 h-10 mx-auto mb-2 text-amber-400"></i>
+                        <p class="text-sm font-semibold text-slate-200">Chọn ảnh đường phố để đếm xe và tính mật độ PCU</p>
+                        <p class="text-xs text-slate-400 mt-1">Phân loại xe máy, ô tô, xe tải, xe buýt</p>
+                        <input id="traffic-file-input" type="file" accept="image/*" class="hidden">
+                    </div>
+                    <img id="traffic-preview-img" class="hidden max-h-64 object-contain rounded-xl border border-slate-800" alt="Preview">
+                    <button id="traffic-run-btn" disabled class="w-full py-3 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+                        <span id="traffic-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                        <span>PHÂN TÍCH LƯU LƯỢNG XE & PCU</span>
+                    </button>
+                </div>
+
+                <!-- Traffic Results View -->
+                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
+                    <h3 class="font-bold text-white text-base">KẾT QUẢ NHẬN DIỆN PHƯƠNG TIỆN</h3>
+                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+                        <img id="traffic-output-img" class="hidden w-full h-full object-contain" alt="Output Traffic">
+                        <div id="traffic-output-placeholder" class="text-slate-500 text-sm">Chưa có kết quả phân tích</div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-center">
+                        <div>
+                            <span class="text-xs text-slate-400">TỔNG SỐ XE:</span>
+                            <div id="traffic-kpi-vehicles" class="text-2xl font-bold text-white">-- xe</div>
+                        </div>
+                        <div>
+                            <span class="text-xs text-slate-400">ĐIỂM PCU:</span>
+                            <div id="traffic-kpi-pcu" class="text-2xl font-bold text-amber-400">-- PCU</div>
+                        </div>
+                        <div>
+                            <span class="text-xs text-slate-400">ÙN TẮC:</span>
+                            <div id="traffic-kpi-congestion" class="text-xl font-bold text-slate-300">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Transparent Auto-Wake Modal -->
+    <div id="auto-wake-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl flex flex-col gap-5">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center animate-pulse">
+                    <i data-lucide="cpu" class="w-6 h-6 text-cyan-400"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-white text-base">TỰ ĐỘNG KHỞI ĐỘNG AI CLOUD GPU</h3>
+                    <p class="text-xs text-slate-400">Máy chủ đang được đánh thức trên Kaggle</p>
+                </div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="flex flex-col gap-2">
+                <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
+                    <div id="wake-progress-bar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-500 w-[5%]"></div>
+                </div>
+                <div id="wake-status-text" class="text-xs text-slate-300 italic">Đang gửi tín hiệu kích hoạt GPU...</div>
+            </div>
+
+            <p class="text-xs text-slate-400 bg-slate-950/50 p-3 rounded-xl border border-slate-800">
+                ⚡ Hệ thống sẽ <strong>tự động thực hiện ngay yêu cầu của bạn</strong> ngay khi GPU sẵn sàng mà không cần bấm lại nút nào!
+            </p>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full flex flex-col gap-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-white text-base flex items-center gap-2">
+                    <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
+                    <span>CẤU HÌNH ĐỊA CHỈ AI BACKEND</span>
+                </h3>
+                <button id="close-settings-btn" class="text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-semibold text-slate-300">Địa chỉ Backend API (Ngrok hoặc Tunnel Domain):</label>
+                <input id="custom-backend-input" type="text" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-cyan-300 focus:outline-none focus:border-cyan-500">
+                <p class="text-[11px] text-slate-400">Địa chỉ mặc định: <code class="text-cyan-400">https://hush-harmless-erased.ngrok-free.dev</code></p>
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button id="reset-settings-btn" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">Khôi Phục Mặc Định</button>
+                <button id="save-settings-btn" class="px-5 py-2 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white">Lưu & Kết Nối</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 bg-slate-950 py-4 text-center text-xs text-slate-500">
+        © 2026 SYNEXAN AI Lab - Hệ Thống Giám Sát Ngập Lụt & Điều Tiết Giao Thông Đô Thị Bằng Trí Tuệ Nhân Tạo
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/api_interceptor.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>

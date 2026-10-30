@@ -1,0 +1,13 @@
+fastapi>=0.110.0
+uvicorn>=0.28.0
+ultralytics>=8.2.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+pillow>=10.0.0
+torch>=2.0.0
+torchvision
+pyngrok>=7.1.0
+nest-asyncio>=1.6.0
+python-multipart>=0.0.9
+lapx>=0.5.5
