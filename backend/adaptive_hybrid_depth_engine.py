@@ -341,19 +341,13 @@ def refine_flood_segmentation_mask(
     if np.any(core_seeds > 0):
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
         core_labels = np.unique(labels[core_seeds > 0])
-        core_labels = core_labels[core_labels > 0]
-
-        clean_bin = np.zeros_like(candidates, dtype=np.uint8)
-        for lbl in core_labels:
-            if stats[lbl, cv2.CC_STAT_AREA] >= 150:
-                clean_bin[labels == lbl] = 1
+        valid_labels = [int(lbl) for lbl in core_labels if lbl > 0 and stats[lbl, cv2.CC_STAT_AREA] >= 50]
+        clean_bin = np.isin(labels, valid_labels).astype(np.uint8) if valid_labels else np.zeros_like(candidates, dtype=np.uint8)
     else:
         # Trường hợp nước rất nông: Lọc theo diện tích tối thiểu
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
-        clean_bin = np.zeros_like(candidates, dtype=np.uint8)
-        for lbl_idx in range(1, num_labels):
-            if stats[lbl_idx, cv2.CC_STAT_AREA] >= 300:
-                clean_bin[labels == lbl_idx] = 1
+        valid_labels = [lbl_idx for lbl_idx in range(1, num_labels) if stats[lbl_idx, cv2.CC_STAT_AREA] >= 100]
+        clean_bin = np.isin(labels, valid_labels).astype(np.uint8) if valid_labels else np.zeros_like(candidates, dtype=np.uint8)
 
     if not np.any(clean_bin > 0):
         return np.zeros((h, w), dtype=np.float32)
@@ -416,8 +410,8 @@ def process_single_frame_hybrid(frame_bgr: np.ndarray,
                 frame_bgr,
                 conf=float(flood_conf),
                 iou=0.55,
-                imgsz=infer_imgsz,
-                retina_masks=infer_retina,
+                imgsz=640,
+                retina_masks=False,
                 device=INFER_DEVICE,
                 verbose=False
             )[0]

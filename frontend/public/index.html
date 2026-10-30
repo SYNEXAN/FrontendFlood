@@ -571,7 +571,7 @@
   <!-- Giao diện nguyên bản từ Model Backend -->
   <iframe 
     id="app-frame" 
-    src="https://european-honey-mercy-study.trycloudflare.com" 
+    src="https://alignment-episodes-charts-adjustments.trycloudflare.com" 
     allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
     title="AI Urban Flood & Traffic Congestion Monitor">
   </iframe>
@@ -605,7 +605,7 @@
 
       <div class="form-group">
         <label class="form-label">Endpoint URL (Giao diện API Model)</label>
-        <input type="url" id="inputNgrokUrl" class="form-input" placeholder="https://european-honey-mercy-study.trycloudflare.com">
+        <input type="url" id="inputNgrokUrl" class="form-input" placeholder="https://alignment-episodes-charts-adjustments.trycloudflare.com">
         <div class="form-tip">Đường dẫn máy chủ trực tiếp kết nối tới mô hình.</div>
       </div>
 
@@ -635,7 +635,7 @@
       username: "nguynvlun",
       kernelSlug: "floodkaggleapi",
       kernelTitle: "Flood Kaggle API",
-      ngrokUrl: "https://european-honey-mercy-study.trycloudflare.com",
+      ngrokUrl: "https://alignment-episodes-charts-adjustments.trycloudflare.com",
       notebookUrl: "./floodkaggleapi.ipynb",
       fallbackNotebookUrl: "https://raw.githubusercontent.com/Luan2004/FontendFlood/main/floodkaggleapi.ipynb"
     };
@@ -646,6 +646,11 @@
       if (savedUrl && savedUrl.includes("ngrok-free.dev")) {
         localStorage.removeItem("flood_ngrok_url");
         savedUrl = null;
+      }
+      // Tự động đồng bộ với URL Cloudflare tunnel mới nhất từ máy chủ
+      if (savedUrl && DEFAULT_CONFIG.ngrokUrl && savedUrl !== DEFAULT_CONFIG.ngrokUrl) {
+        localStorage.removeItem("flood_ngrok_url");
+        savedUrl = DEFAULT_CONFIG.ngrokUrl;
       }
       return {
         token: localStorage.getItem("flood_kaggle_token") || DEFAULT_CONFIG.kaggleToken,
