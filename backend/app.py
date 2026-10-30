@@ -1182,7 +1182,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Frame {cur_idx}: {frame_err}")
                 continue
-        except GeneratorExit:
+    except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
     finally:
@@ -1676,7 +1676,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Traffic Frame {cur_idx}: {frame_err}")
                 continue
-        except GeneratorExit:
+    except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
     finally:
@@ -2067,7 +2067,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Video Fusion Frame {cur_idx}: {frame_err}")
                 continue
-        except GeneratorExit:
+    except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
     finally:
