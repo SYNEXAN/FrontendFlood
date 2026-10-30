@@ -5,7 +5,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-let activeBackendUrl = process.env.DEFAULT_BACKEND_URL || "https://uselessly-rascal-twentieth.ngrok-free.dev";
+let activeBackendUrl = process.env.DEFAULT_BACKEND_URL || "https://rocky-spot-tom-recognition.trycloudflare.com";
 
 app.use(cors());
 app.use(express.json());
