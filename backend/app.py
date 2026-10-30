@@ -1089,11 +1089,17 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Frame {seq}: {frame_err}")
                     continue
+        except GeneratorExit:
+            LIVE_STREAM_STATE["active"] = False
+            return
         finally:
             grabber.release()
-            if LIVE_STREAM_STATE["run_id"] == my_run_id:
+            if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 LIVE_STREAM_STATE["active"] = False
-                yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera!</b></div>"
+                try:
+                    yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera!</b></div>"
+                except GeneratorExit:
+                    return
         return
 
     # Trường hợp 3: Nguồn đầu vào là Video MP4
@@ -1176,12 +1182,18 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Frame {cur_idx}: {frame_err}")
                 continue
+        except GeneratorExit:
+        LIVE_STREAM_STATE["active"] = False
+        return
     finally:
         cap.release()
 
-    if LIVE_STREAM_STATE["run_id"] == my_run_id:
+    if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
         LIVE_STREAM_STATE["active"] = False
-        yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Kết quả đo đạc cuối cùng đã được lưu giữ.</div>"
+        try:
+            yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Kết quả đo đạc cuối cùng đã được lưu giữ.</div>"
+        except GeneratorExit:
+            return
 
 
 # ==============================================================================
@@ -1567,11 +1579,17 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Giao thông Frame {seq}: {frame_err}")
                     continue
+        except GeneratorExit:
+            LIVE_STREAM_STATE["active"] = False
+            return
         finally:
             grabber.release()
-            if LIVE_STREAM_STATE["run_id"] == my_run_id:
+            if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 LIVE_STREAM_STATE["active"] = False
-                yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera giao thông!</b></div>"
+                try:
+                    yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera giao thông!</b></div>"
+                except GeneratorExit:
+                    return
         return
 
     # Trường hợp 3: Nguồn Video MP4
@@ -1658,12 +1676,18 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Traffic Frame {cur_idx}: {frame_err}")
                 continue
+        except GeneratorExit:
+        LIVE_STREAM_STATE["active"] = False
+        return
     finally:
         cap.release()
 
-    if LIVE_STREAM_STATE["run_id"] == my_run_id:
+    if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
         LIVE_STREAM_STATE["active"] = False
-        yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Lịch sử ùn tắc đã được lưu vào cơ sở dữ liệu.</div>"
+        try:
+            yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video!</b> Lịch sử ùn tắc đã được lưu vào cơ sở dữ liệu.</div>"
+        except GeneratorExit:
+            return
 
 
 
@@ -1932,11 +1956,17 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi xử lý Camera Fusion Frame {seq}: {frame_err}")
                     continue
+        except GeneratorExit:
+            LIVE_STREAM_STATE["active"] = False
+            return
         finally:
             grabber.release()
-            if LIVE_STREAM_STATE["run_id"] == my_run_id:
+            if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 LIVE_STREAM_STATE["active"] = False
-                yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera tích hợp!</b></div>"
+                try:
+                    yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã ngắt luồng Camera tích hợp!</b></div>"
+                except GeneratorExit:
+                    return
         return
 
     # Trường hợp 3: Video MP4
@@ -2037,12 +2067,18 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
             except Exception as frame_err:
                 print(f"⚠️ Cảnh báo lỗi xử lý Video Fusion Frame {cur_idx}: {frame_err}")
                 continue
+        except GeneratorExit:
+        LIVE_STREAM_STATE["active"] = False
+        return
     finally:
         cap.release()
 
-    if LIVE_STREAM_STATE["run_id"] == my_run_id:
+    if LIVE_STREAM_STATE.get("active", False) and LIVE_STREAM_STATE["run_id"] == my_run_id:
         LIVE_STREAM_STATE["active"] = False
-        yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video tích hợp!</b></div>"
+        try:
+            yield gr.skip(), gr.skip(), gr.skip(), "<div style='color:#22c55e;'>✅ <b>Đã phát xong toàn bộ video tích hợp!</b></div>"
+        except GeneratorExit:
+            return
 
 # ==============================================================================
 # GIAO DIỆN GRADIO HIỆN ĐẠI

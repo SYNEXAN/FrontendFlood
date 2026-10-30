@@ -767,6 +767,25 @@
       if (isExecutingKernel) return;
       const config = getConfig();
 
+      // 1. Thử gọi API Status phía Server (Same-Origin, không bao giờ bị lỗi CORS)
+      try {
+        const pingUrl = `/api/status?target=${encodeURIComponent(config.ngrok)}`;
+        const res = await fetch(pingUrl, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.online) {
+            updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
+            return true;
+          } else {
+            updateStatusUI("offline", "🔴 Backend GPU: Offline");
+            return false;
+          }
+        }
+      } catch (serverErr) {
+        // Fallback khi chạy tĩnh
+      }
+
+      // 2. Fallback kiểm tra trực tiếp
       try {
         const t0 = performance.now();
         const res = await fetch(`${config.ngrok}/config`, {
@@ -778,10 +797,17 @@
         if (res.ok) {
           updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
           return true;
-        } else {
-          updateStatusUI("offline", "🔴 Backend GPU: Offline");
-          return false;
         }
+      } catch (directErr) {
+        if (isServerOnline) {
+          updateStatusUI("online", "🟢 Backend GPU: Online");
+          return true;
+        }
+      }
+
+      updateStatusUI("offline", "🔴 Backend GPU: Offline");
+      return false;
+    }
       } catch (err) {
         try {
           await fetch(`${config.ngrok}/favicon.ico`, { mode: "no-cors", cache: "no-store" });

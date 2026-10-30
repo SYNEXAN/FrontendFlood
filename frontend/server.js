@@ -19,6 +19,53 @@ app.get('/api/config', (req, res) => {
     });
 });
 
+// Server-side Heartbeat Status Check (Tránh hoàn toàn lỗi CORS của trình duyệt)
+app.get('/api/status', (req, res) => {
+    const targetUrl = req.query.target || DEFAULT_BACKEND_URL;
+    let checkUrl = targetUrl;
+    if (!checkUrl.endsWith('/config')) {
+        checkUrl = checkUrl.replace(/\/+$/, '') + '/config';
+    }
+
+    const t0 = Date.now();
+    try {
+        const urlObj = new URL(checkUrl);
+        const reqOptions = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+            path: urlObj.pathname,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'ngrok-skip-browser-warning': 'true'
+            },
+            timeout: 5000
+        };
+
+        const clientReq = https.request(reqOptions, (backendRes) => {
+            const latencyMs = Date.now() - t0;
+            if (backendRes.statusCode >= 200 && backendRes.statusCode < 400) {
+                res.json({ online: true, statusCode: backendRes.statusCode, latencyMs });
+            } else {
+                res.json({ online: false, statusCode: backendRes.statusCode, latencyMs });
+            }
+        });
+
+        clientReq.on('timeout', () => {
+            clientReq.destroy();
+            res.json({ online: false, error: 'timeout' });
+        });
+
+        clientReq.on('error', (err) => {
+            res.json({ online: false, error: err.message });
+        });
+
+        clientReq.end();
+    } catch (err) {
+        res.json({ online: false, error: err.message });
+    }
+});
+
 // Secure Server-side Auto-Wake Endpoint (No CORS issue, No leaked credentials)
 app.post('/api/wake-up', (req, res) => {
     const username = process.env.KAGGLE_USERNAME;
