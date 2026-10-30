@@ -1,350 +1,1198 @@
 <!DOCTYPE html>
-<html lang="vi" class="dark">
+<html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Giám Sát Ngập Lụt & Giao Thông Đô Thị - SYNEXAN</title>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            50: '#ecfeff',
-                            500: '#06b6d4',
-                            600: '#0891b2',
-                            900: '#164e63',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Urban Flood & Traffic Congestion Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌊</text></svg>">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- Google Fonts: Plus Jakarta Sans & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(15, 23, 42, 0.85);
+      --border-color: rgba(51, 65, 85, 0.6);
+      --primary-blue: #3b82f6;
+      --primary-indigo: #6366f1;
+      --accent-cyan: #06b6d4;
+      --success-green: #10b981;
+      --warning-amber: #f59e0b;
+      --danger-red: #ef4444;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-dark);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text-main);
+    }
+
+    /* Iframe Gradio */
+    #app-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+      background: var(--bg-dark);
+    }
+
+    /* Floating Top Bar (Controls over Iframe) */
+    #floating-top-bar {
+      position: fixed;
+      top: 14px;
+      right: 18px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      padding: 6px 10px;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(59, 130, 246, 0.15);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    #floating-top-bar:hover {
+      border-color: rgba(59, 130, 246, 0.4);
+      box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6), 0 0 20px rgba(59, 130, 246, 0.25);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warning-amber);
+      display: inline-block;
+    }
+
+    .status-dot.online {
+      background: var(--success-green);
+      box-shadow: 0 0 8px #10b981;
+    }
+
+    .status-dot.offline {
+      background: var(--danger-red);
+      box-shadow: 0 0 8px #ef4444;
+    }
+
+    .status-dot.pulsing {
+      animation: pulse-dot 1.2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.25); }
+    }
+
+    /* Action Buttons in Floating Bar */
+    .btn-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .btn-primary-glow {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    }
+
+    .btn-primary-glow:hover {
+      background: linear-gradient(135deg, #1d4ed8, #4338ca);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-primary-glow:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary-glow:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-icon-only {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 50%;
+      background: rgba(30, 41, 59, 0.8);
+      color: #94a3b8;
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-icon-only:hover {
+      color: #ffffff;
+      background: rgba(51, 65, 85, 0.9);
+      border-color: #64748b;
+      transform: rotate(15deg);
+    }
+
+    /* FULLSCREEN LOADING & CONNECTION OVERLAY */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 20%, #172554 0%, #090d16 80%);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      padding: 24px;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+
+    .overlay-card {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 28px;
+      padding: 36px 40px;
+      max-width: 580px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 40px rgba(37, 99, 235, 0.15);
+      position: relative;
+    }
+
+    .brand-icon-box {
+      width: 68px;
+      height: 68px;
+      margin: 0 auto 20px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #0284c7, #3b82f6, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4);
+      position: relative;
+    }
+
+    .status-text {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+      background: linear-gradient(to right, #60a5fa, #38bdf8, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .sub-text {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    /* Big Action Button on Overlay */
+    .btn-connect-large {
+      width: 100%;
+      padding: 16px 24px;
+      background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #4f46e5 100%);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      border: none;
+      border-radius: 18px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4), 0 0 20px rgba(59, 130, 246, 0.2);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: inherit;
+    }
+
+    .btn-connect-large:hover {
+      background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #4338ca 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 15px 30px rgba(37, 99, 235, 0.5), 0 0 25px rgba(59, 130, 246, 0.35);
+    }
+
+    .btn-connect-large:active {
+      transform: translateY(0);
+    }
+
+    .btn-connect-large:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Execution Steps Box */
+    .steps-container {
+      margin-top: 24px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      border-radius: 18px;
+      padding: 18px 20px;
+      text-align: left;
+      display: none;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      font-size: 13px;
+      color: var(--text-muted);
+      border-bottom: 1px dashed rgba(51, 65, 85, 0.5);
+    }
+
+    .step-item:last-child {
+      border-bottom: none;
+    }
+
+    .step-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #94a3b8;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .step-item.running .step-icon {
+      background: #3b82f6;
+      color: white;
+      animation: spin 1.2s linear infinite;
+    }
+
+    .step-item.running {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .step-item.done .step-icon {
+      background: #10b981;
+      color: white;
+    }
+
+    .step-item.done {
+      color: #e2e8f0;
+    }
+
+    .step-item.error .step-icon {
+      background: #ef4444;
+      color: white;
+    }
+
+    .step-item.error {
+      color: #f87171;
+    }
+
+    .cmd-badge-wrapper {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cmd-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+    }
+
+    .cmd-badge code {
+      font-weight: 600;
+    }
+
+    /* Modal: Cấu hình API Model */
+    #settings-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 24px;
+      max-width: 520px;
+      width: 100%;
+      padding: 28px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+      position: relative;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-close-modal {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-close-modal:hover {
+      color: #ffffff;
+      background: #1e293b;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #f8fafc;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.2s ease;
+    }
+
+    .form-input:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .form-tip {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .btn-secondary {
+      padding: 9px 18px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+
+    .btn-primary {
+      padding: 9px 18px;
+      background: #2563eb;
+      border: none;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    /* Toast Notification */
+    #toast-msg {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1001;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f8fafc;
+      padding: 12px 20px;
+      border-radius: 14px;
+      font-size: 13px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      animation: slide-up 0.3s ease;
+    }
+
+    @keyframes slide-up {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Subtle Spinner */
+    .mini-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+  </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+<body>
 
-    <!-- Top Navigation Header -->
-    <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                    <i data-lucide="waves" class="w-6 h-6 text-white"></i>
-                </div>
-                <div>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs font-bold tracking-widest text-cyan-400 uppercase">SYNEXAN AI LAB</span>
-                        <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">v2.0</span>
-                    </div>
-                    <h1 class="text-sm sm:text-base font-bold text-white tracking-tight">HỆ THỐNG GIÁM SÁT NGẬP LỤT & ÙN TẮC ĐÔ THỊ</h1>
-                </div>
-            </div>
-
-            <!-- Header Actions & Status Badge -->
-            <div class="flex items-center gap-3">
-                <div id="backend-status-badge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                    <span id="status-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                    <span id="status-text">AI Backend: Đang kiểm tra...</span>
-                </div>
-
-                <button id="open-settings-btn" title="Cấu hình Backend URL" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-700">
-                    <i data-lucide="settings" class="w-4 h-4"></i>
-                </button>
-            </div>
-        </div>
-    </header>
-
-    <!-- Main Container -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-
-        <!-- Global Dual Alarm Banner (Hidden by default) -->
-        <div id="dual-alarm-banner" class="hidden rounded-2xl bg-gradient-to-r from-rose-950/80 via-red-900/60 to-rose-950/80 border-2 border-red-500/80 p-4 dual-alarm-active transition-all duration-300">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-red-600/30 border border-red-500 flex items-center justify-center animate-bounce">
-                        <i data-lucide="alert-triangle" class="w-7 h-7 text-red-400"></i>
-                    </div>
-                    <div>
-                        <div class="text-xs font-bold uppercase tracking-wider text-red-300">CẢNH BÁO KHẨN CẤP ĐÔ THỊ</div>
-                        <div id="dual-alarm-msg" class="text-lg font-extrabold text-white">🚨 BÁO ĐỘNG KÉP: NƯỚC NGẬP SÂU KÈM ÙN TẮC GIAO THÔNG NGHIÊM TRỌNG</div>
-                        <p class="text-xs text-red-200/80">Khuyến nghị các phương tiện xe máy chuyển hướng di chuyển ngay lập tức.</p>
-                    </div>
-                </div>
-                <div class="hidden sm:flex items-center gap-2">
-                    <span class="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse">
-                        MỨC ĐỘ NGUY HIỂM CAO
-                    </span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Navigation Tabs Bar -->
-        <div class="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-900/80 border border-slate-800 w-fit self-center sm:self-start">
-            <button id="btn-tab_fusion" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-lg shadow-cyan-500/10">
-                <i data-lucide="activity" class="w-4 h-4"></i>
-                <span>Tab 3: Dual Fusion Realtime</span>
-            </button>
-            <button id="btn-tab_flood" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
-                <i data-lucide="droplets" class="w-4 h-4"></i>
-                <span>Tab 1: Giám Sát Ngập & Thước Đo</span>
-            </button>
-            <button id="btn-tab_traffic" class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50">
-                <i data-lucide="car" class="w-4 h-4"></i>
-                <span>Tab 2: Phân Tích Phương Tiện</span>
-            </button>
-        </div>
-
-        <!-- TAB 3: DUAL FUSION REALTIME PANE -->
-        <section id="pane-tab_fusion" class="flex flex-col gap-6">
-            <!-- Grid: Left Video / Right Stream Control -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Video / Stream Viewport -->
-                <div class="lg:col-span-2 glass-panel rounded-2xl p-4 flex flex-col gap-4">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="video" class="w-5 h-5 text-cyan-400"></i>
-                            <h2 class="font-bold text-white text-base">MÀN HÌNH GIÁM SÁT TRỰC TIẾP (CCTV / RTSP)</h2>
-                        </div>
-                        <span id="stream-status-indicator" class="text-xs text-slate-400 font-medium">⚪ Sẵn sàng kết nối</span>
-                    </div>
-
-                    <!-- Stream Visual Canvas / Img -->
-                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                        <img id="stream-video-element" class="hidden w-full h-full object-contain" alt="Live Camera Feed">
-                        
-                        <!-- Initial Placeholder -->
-                        <div id="fusion-stream-placeholder" class="flex flex-col items-center gap-3 text-slate-500">
-                            <i data-lucide="tv" class="w-12 h-12 stroke-1"></i>
-                            <p class="text-sm">Chưa kết nối luồng camera. Nhập URL RTSP bên phải và bấm "Xem Trực Tiếp".</p>
-                        </div>
-                    </div>
-
-                    <!-- Metrics Badges row -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
-                            <div class="text-[11px] font-medium text-slate-400">MỰC NƯỚC ĐO ĐƯỢC</div>
-                            <div id="fusion-kpi-depth" class="text-2xl font-bold text-cyan-400">-- cm</div>
-                        </div>
-                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
-                            <div class="text-[11px] font-medium text-slate-400">SỐ PHƯƠNG TIỆN</div>
-                            <div id="fusion-kpi-vehicles" class="text-2xl font-bold text-white">-- xe</div>
-                        </div>
-                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
-                            <div class="text-[11px] font-medium text-slate-400">LƯU LƯỢNG (PCU)</div>
-                            <div id="fusion-kpi-pcu" class="text-2xl font-bold text-amber-400">-- PCU</div>
-                        </div>
-                        <div class="bg-slate-900/60 rounded-xl p-3 border border-slate-800/80">
-                            <div class="text-[11px] font-medium text-slate-400">MỨC ĐỘ ÙN TẮC</div>
-                            <div id="fusion-kpi-congestion" class="text-xl font-bold text-slate-300">BÌNH THƯỜNG</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Control Panel -->
-                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-5 justify-between">
-                    <div class="flex flex-col gap-4">
-                        <div class="flex items-center gap-2 border-b border-slate-800 pb-3">
-                            <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
-                            <h3 class="font-bold text-white text-sm">ĐIỀU KHIỂN LUỒNG & AI PIPELINE</h3>
-                        </div>
-
-                        <!-- Camera Source Selection -->
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-semibold text-slate-300">Nguồn Luồng Camera (RTSP / Video URL):</label>
-                            <input id="stream-source-url" type="text" placeholder="rtsp://... hoặc https://..." value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-cyan-500">
-                        </div>
-
-                        <div class="flex flex-col gap-2">
-                            <span class="text-xs text-slate-400 font-medium">Hoặc kiểm tra nhanh bằng ảnh tĩnh:</span>
-                            <div id="fusion-dropzone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-4 text-center cursor-pointer transition-colors">
-                                <i data-lucide="upload-cloud" class="w-6 h-6 mx-auto mb-1 text-slate-400"></i>
-                                <span class="text-xs text-slate-300">Kéo thả ảnh hoặc <span class="text-cyan-400 font-semibold">Tải lên</span></span>
-                                <input id="fusion-file-input" type="file" accept="image/*" class="hidden">
-                            </div>
-                            <img id="fusion-preview-img" class="hidden max-h-32 object-contain rounded-lg border border-slate-700" alt="Preview">
-                        </div>
-                    </div>
-
-                    <div class="flex flex-col gap-3">
-                        <button id="fusion-run-btn" disabled class="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                            <span id="fusion-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
-                            <span>PHÂN TÍCH ẢNH DUAL FUSION</span>
-                        </button>
-
-                        <button id="start-stream-btn" class="w-full py-3 px-4 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2">
-                            <i data-lucide="play" class="w-4 h-4"></i>
-                            <span>BẬT XEM CAMERA TRỰC TIẾP</span>
-                        </button>
-                        <button id="stop-stream-btn" class="hidden w-full py-3 px-4 rounded-xl font-bold text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2">
-                            <i data-lucide="square" class="w-4 h-4"></i>
-                            <span>DỪNG LUỒNG CAMERA</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- TAB 1: FLOOD & STAFF GAUGE -->
-        <section id="pane-tab_flood" class="hidden flex flex-col gap-6">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Upload & Options -->
-                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
-                    <h3 class="font-bold text-white text-base flex items-center gap-2">
-                        <i data-lucide="droplets" class="w-5 h-5 text-cyan-400"></i>
-                        <span>TẢI ẢNH NGẬP LỤT ĐỂ ĐO MỰC NƯỚC</span>
-                    </h3>
-                    <div id="flood-dropzone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-8 text-center cursor-pointer transition-colors">
-                        <i data-lucide="upload" class="w-10 h-10 mx-auto mb-2 text-cyan-400"></i>
-                        <p class="text-sm font-semibold text-slate-200">Chọn ảnh có vạch ngập nước hoặc cọc tiêu đo nước</p>
-                        <p class="text-xs text-slate-400 mt-1">Hỗ trợ JPG, PNG định dạng chất lượng cao</p>
-                        <input id="flood-file-input" type="file" accept="image/*" class="hidden">
-                    </div>
-                    <img id="flood-preview-img" class="hidden max-h-64 object-contain rounded-xl border border-slate-800" alt="Preview">
-                    <button id="flood-run-btn" disabled class="w-full py-3 rounded-xl font-bold text-sm bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
-                        <span id="flood-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
-                        <span>ĐO MỰC NƯỚC THEO CỌC TIÊU (CM)</span>
-                    </button>
-                </div>
-
-                <!-- Flood Results View -->
-                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
-                    <h3 class="font-bold text-white text-base">KẾT QUẢ ĐO ĐẠC MỰC NƯỚC</h3>
-                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                        <img id="flood-output-img" class="hidden w-full h-full object-contain" alt="Output Flood">
-                        <div id="flood-output-placeholder" class="text-slate-500 text-sm">Chưa có kết quả phân tích</div>
-                    </div>
-                    <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
-                        <div>
-                            <span class="text-xs text-slate-400">ĐỘ SÂU NGẬP NƯỚC TÍNH TOÁN:</span>
-                            <div id="flood-kpi-depth" class="text-3xl font-extrabold text-cyan-400">-- cm</div>
-                        </div>
-                        <div class="text-right">
-                            <span class="text-xs text-slate-400">PHƯƠNG PHÁP ĐO:</span>
-                            <div class="text-sm font-bold text-white">Staff Gauge Virtual Ruler</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- TAB 2: TRAFFIC & VEHICLE CONGESTION -->
-        <section id="pane-tab_traffic" class="hidden flex flex-col gap-6">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Upload & Options -->
-                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
-                    <h3 class="font-bold text-white text-base flex items-center gap-2">
-                        <i data-lucide="car" class="w-5 h-5 text-amber-400"></i>
-                        <span>TẢI ẢNH GIAO THÔNG ĐÔ THỊ</span>
-                    </h3>
-                    <div id="traffic-dropzone" class="border-2 border-dashed border-slate-700 hover:border-amber-500 rounded-xl p-8 text-center cursor-pointer transition-colors">
-                        <i data-lucide="truck" class="w-10 h-10 mx-auto mb-2 text-amber-400"></i>
-                        <p class="text-sm font-semibold text-slate-200">Chọn ảnh đường phố để đếm xe và tính mật độ PCU</p>
-                        <p class="text-xs text-slate-400 mt-1">Phân loại xe máy, ô tô, xe tải, xe buýt</p>
-                        <input id="traffic-file-input" type="file" accept="image/*" class="hidden">
-                    </div>
-                    <img id="traffic-preview-img" class="hidden max-h-64 object-contain rounded-xl border border-slate-800" alt="Preview">
-                    <button id="traffic-run-btn" disabled class="w-full py-3 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
-                        <span id="traffic-spinner" class="hidden animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
-                        <span>PHÂN TÍCH LƯU LƯỢNG XE & PCU</span>
-                    </button>
-                </div>
-
-                <!-- Traffic Results View -->
-                <div class="glass-panel rounded-2xl p-5 flex flex-col gap-4">
-                    <h3 class="font-bold text-white text-base">KẾT QUẢ NHẬN DIỆN PHƯƠNG TIỆN</h3>
-                    <div class="relative w-full aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                        <img id="traffic-output-img" class="hidden w-full h-full object-contain" alt="Output Traffic">
-                        <div id="traffic-output-placeholder" class="text-slate-500 text-sm">Chưa có kết quả phân tích</div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-center">
-                        <div>
-                            <span class="text-xs text-slate-400">TỔNG SỐ XE:</span>
-                            <div id="traffic-kpi-vehicles" class="text-2xl font-bold text-white">-- xe</div>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400">ĐIỂM PCU:</span>
-                            <div id="traffic-kpi-pcu" class="text-2xl font-bold text-amber-400">-- PCU</div>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400">ÙN TẮC:</span>
-                            <div id="traffic-kpi-congestion" class="text-xl font-bold text-slate-300">--</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- Transparent Auto-Wake Modal -->
-    <div id="auto-wake-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl flex flex-col gap-5">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center animate-pulse">
-                    <i data-lucide="cpu" class="w-6 h-6 text-cyan-400"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-white text-base">TỰ ĐỘNG KHỞI ĐỘNG AI CLOUD GPU</h3>
-                    <p class="text-xs text-slate-400">Máy chủ đang được đánh thức trên Kaggle</p>
-                </div>
-            </div>
-
-            <!-- Progress Bar -->
-            <div class="flex flex-col gap-2">
-                <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
-                    <div id="wake-progress-bar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-full rounded-full transition-all duration-500 w-[5%]"></div>
-                </div>
-                <div id="wake-status-text" class="text-xs text-slate-300 italic">Đang gửi tín hiệu kích hoạt GPU...</div>
-            </div>
-
-            <p class="text-xs text-slate-400 bg-slate-950/50 p-3 rounded-xl border border-slate-800">
-                ⚡ Hệ thống sẽ <strong>tự động thực hiện ngay yêu cầu của bạn</strong> ngay khi GPU sẵn sàng mà không cần bấm lại nút nào!
-            </p>
-        </div>
+  <!-- FLOATING CONTROL BAR (Nằm trên Gradio iframe, luôn hiện để người dùng bấm nút) -->
+  <div id="floating-top-bar">
+    <!-- Status Indicator -->
+    <div class="status-pill" id="btnStatusPill" title="Bấm để kiểm tra lại trạng thái API Model">
+      <span class="status-dot pulsing" id="topStatusDot"></span>
+      <span id="topStatusText">Đang kiểm tra Model...</span>
     </div>
 
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full flex flex-col gap-4">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 class="font-bold text-white text-base flex items-center gap-2">
-                    <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
-                    <span>CẤU HÌNH ĐỊA CHỈ AI BACKEND</span>
-                </h3>
-                <button id="close-settings-btn" class="text-slate-400 hover:text-white">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <div class="flex flex-col gap-2">
-                <label class="text-xs font-semibold text-slate-300">Địa chỉ Backend API (Ngrok hoặc Tunnel Domain):</label>
-                <input id="custom-backend-input" type="text" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-cyan-300 focus:outline-none focus:border-cyan-500">
-                <p class="text-[11px] text-slate-400">Địa chỉ mặc định: <code class="text-cyan-400">https://hush-harmless-erased.ngrok-free.dev</code></p>
-            </div>
-            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-                <button id="reset-settings-btn" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300">Khôi Phục Mặc Định</button>
-                <button id="save-settings-btn" class="px-5 py-2 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white">Lưu & Kết Nối</button>
-            </div>
+    <!-- Nút Kết Nối API Model -->
+    <button id="btnConnectApiTop" class="btn-action btn-primary-glow" title="Khởi động và kết nối API Model">
+      <i class="fa-solid fa-bolt"></i>
+      <span id="btnConnectApiTopText">Kết nối API Model</span>
+    </button>
+
+    <!-- Nút Tải lại Iframe -->
+    <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
+      <i class="fa-solid fa-arrows-rotate"></i>
+    </button>
+
+    <!-- Nút Cài đặt API -->
+    <button id="btnOpenSettings" class="btn-icon-only" title="Cấu hình API Model & Endpoint URL">
+      <i class="fa-solid fa-gear"></i>
+    </button>
+  </div>
+
+  <!-- LOADING & ACTIVATION OVERLAY -->
+  <div id="loading-overlay">
+    <div class="overlay-card">
+      <div class="brand-icon-box">
+        🌊
+      </div>
+      
+      <div class="status-text">AI Urban Flood & Traffic Monitor</div>
+      <div class="sub-text" id="overlaySubText">
+        Hệ thống AI giám sát độ sâu ngập lụt đô thị và lưu lượng giao thông.
+      </div>
+
+      <!-- Nút Kết Nối API Model Chính -->
+      <button id="btnConnectApiOverlay" class="btn-connect-large">
+        <i class="fa-solid fa-bolt"></i>
+        <span id="btnConnectApiOverlayText">KẾT NỐI API MODEL</span>
+      </button>
+
+      <!-- Các Bước Thực Thi Khi Chạy API Model -->
+      <div class="steps-container" id="stepsContainer">
+        <div class="step-item" id="step-1">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">1. Khởi tạo phiên làm việc API Model...</div>
         </div>
+        <div class="step-item" id="step-2">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">2. Cấp phát tài nguyên máy chủ Model...</div>
+        </div>
+        <div class="step-item" id="step-3">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">3. Nạp trọng số mô hình AI & tối ưu hóa...</div>
+        </div>
+        <div class="step-item" id="step-4">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">4. Thiết lập kết nối API Model & giao diện...</div>
+        </div>
+      </div>
+
+      <!-- Fallback Command -->
+      <div class="cmd-badge-wrapper" id="cmdBadgeWrapper">
+        <span style="font-size: 12px; color: #64748b;">Khởi động nhanh từ Terminal:</span>
+        <div class="cmd-badge">
+          <i class="fa-solid fa-terminal" style="font-size: 10px;"></i>
+          <code>start-model</code>
+        </div>
+      </div>
+
+      <!-- Quick Action: Vào giao diện ngay hoặc Mở tab riêng -->
+      <div style="display: flex; gap: 10px; margin-top: 14px; width: 100%;">
+        <button id="btnEnterAppDirectly" class="btn-action btn-primary-glow" style="flex: 1; justify-content: center; padding: 10px 14px; border-radius: 8px;">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i>
+          <span>Vào Giao Diện Ngay</span>
+        </button>
+        <a id="btnOpenNgrokTab" href="https://hush-harmless-erased.ngrok-free.dev" target="_blank" class="btn-action" style="background: rgba(255,255,255,0.08); color: #cbd5e1; text-decoration: none; justify-content: center; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i>
+          <span>Mở Tab Riêng</span>
+        </a>
+      </div>
     </div>
+  </div>
 
-    <!-- Footer -->
-    <footer class="border-t border-slate-800/80 bg-slate-950 py-4 text-center text-xs text-slate-500">
-        © 2026 SYNEXAN AI Lab - Hệ Thống Giám Sát Ngập Lụt & Điều Tiết Giao Thông Đô Thị Bằng Trí Tuệ Nhân Tạo
-    </footer>
+  <!-- Giao diện nguyên bản từ Model Backend -->
+  <iframe 
+    id="app-frame" 
+    src="https://hush-harmless-erased.ngrok-free.dev" 
+    allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
+    title="AI Urban Flood & Traffic Congestion Monitor">
+  </iframe>
 
-    <!-- Scripts -->
-    <script src="js/config.js"></script>
-    <script src="js/api_interceptor.js"></script>
-    <script src="js/app.js"></script>
-    <script>
-        lucide.createIcons();
-    </script>
+  <!-- MODAL: CẤU HÌNH API MODEL -->
+  <div id="settings-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-sliders" style="color: #3b82f6;"></i> Cấu hình API Model
+        </div>
+        <button id="btnCloseSettings" class="btn-close-modal">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">API Model Key / Token</label>
+        <input type="password" id="inputKaggleToken" class="form-input" placeholder="Nhập API Token của bạn...">
+        <div class="form-tip">Mã khóa xác thực dùng để kích hoạt máy chủ API Model.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Tài khoản & Định danh Model</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="inputKaggleUser" class="form-input" placeholder="username" style="flex: 1;">
+          <input type="text" id="inputKaggleSlug" class="form-input" placeholder="model-id" style="flex: 1.2;">
+        </div>
+        <div class="form-tip">Định danh máy chủ: <code>username/model-id</code></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Endpoint URL (Giao diện API Model)</label>
+        <input type="url" id="inputNgrokUrl" class="form-input" placeholder="https://hush-harmless-erased.ngrok-free.dev">
+        <div class="form-tip">Đường dẫn máy chủ trực tiếp kết nối tới mô hình.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btnTestKaggleApi" class="btn-secondary">
+          <i class="fa-solid fa-plug"></i> Kiểm tra API
+        </button>
+        <button id="btnSaveSettings" class="btn-primary">
+          <i class="fa-solid fa-floppy-disk"></i> Lưu Cấu Hình
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast-msg">
+    <i class="fa-solid fa-circle-info" id="toastIcon"></i>
+    <span id="toastText">Thông báo</span>
+  </div>
+
+  <script>
+    // ========================================================================
+    // CẤU HÌNH MẶC ĐỊNH
+    // ========================================================================
+    const DEFAULT_CONFIG = {
+      kaggleToken: atob("S0dBVF85YTk2MTE5Y2I4Yzc0ZGRjNjA2MDk2MmQwYjYxY2RkMg=="),
+      username: "nguynvlun",
+      kernelSlug: "floodkaggleapi",
+      kernelTitle: "Flood Kaggle API",
+      ngrokUrl: "https://hush-harmless-erased.ngrok-free.dev",
+      notebookUrl: "./floodkaggleapi.ipynb",
+      fallbackNotebookUrl: "https://raw.githubusercontent.com/Luan2004/FontendFlood/main/floodkaggleapi.ipynb"
+    };
+
+    function getConfig() {
+      return {
+        token: localStorage.getItem("flood_kaggle_token") || DEFAULT_CONFIG.kaggleToken,
+        user: localStorage.getItem("flood_kaggle_user") || DEFAULT_CONFIG.username,
+        slug: localStorage.getItem("flood_kaggle_slug") || DEFAULT_CONFIG.kernelSlug,
+        ngrok: localStorage.getItem("flood_ngrok_url") || DEFAULT_CONFIG.ngrokUrl
+      };
+    }
+
+    // ========================================================================
+    // DOM ELEMENTS
+    // ========================================================================
+    const overlay = document.getElementById("loading-overlay");
+    const frame = document.getElementById("app-frame");
+    const overlaySubText = document.getElementById("overlaySubText");
+
+    // Top Floating Bar
+    const topStatusDot = document.getElementById("topStatusDot");
+    const topStatusText = document.getElementById("topStatusText");
+    const btnConnectApiTop = document.getElementById("btnConnectApiTop");
+    const btnConnectApiTopText = document.getElementById("btnConnectApiTopText");
+    const btnReloadFrame = document.getElementById("btnReloadFrame");
+    const btnOpenSettings = document.getElementById("btnOpenSettings");
+    const btnStatusPill = document.getElementById("btnStatusPill");
+
+    // Overlay Elements
+    const btnConnectApiOverlay = document.getElementById("btnConnectApiOverlay");
+    const btnConnectApiOverlayText = document.getElementById("btnConnectApiOverlayText");
+    const stepsContainer = document.getElementById("stepsContainer");
+    const cmdBadgeWrapper = document.getElementById("cmdBadgeWrapper");
+
+    // Modal Settings
+    const settingsModal = document.getElementById("settings-modal");
+    const btnCloseSettings = document.getElementById("btnCloseSettings");
+    const btnSaveSettings = document.getElementById("btnSaveSettings");
+    const btnTestKaggleApi = document.getElementById("btnTestKaggleApi");
+    const inputKaggleToken = document.getElementById("inputKaggleToken");
+    const inputKaggleUser = document.getElementById("inputKaggleUser");
+    const inputKaggleSlug = document.getElementById("inputKaggleSlug");
+    const inputNgrokUrl = document.getElementById("inputNgrokUrl");
+
+    // Toast
+    const toastMsg = document.getElementById("toast-msg");
+    const toastText = document.getElementById("toastText");
+    const toastIcon = document.getElementById("toastIcon");
+
+    let isServerOnline = false;
+    let isExecutingKernel = false;
+    let monitorTimer = null;
+
+    // ========================================================================
+    // TOAST HELPER
+    // ========================================================================
+    function showToast(message, type = "info") {
+      toastText.textContent = message;
+      if (type === "success") {
+        toastIcon.className = "fa-solid fa-circle-check text-emerald-400";
+      } else if (type === "error") {
+        toastIcon.className = "fa-solid fa-triangle-exclamation text-rose-400";
+      } else {
+        toastIcon.className = "fa-solid fa-circle-info text-blue-400";
+      }
+      toastMsg.style.display = "flex";
+      setTimeout(() => { toastMsg.style.display = "none"; }, 3500);
+    }
+
+    // ========================================================================
+    // TRẠNG THÁI GIAO DIỆN
+    // ========================================================================
+    function updateStatusUI(state, text) {
+      topStatusDot.className = "status-dot";
+      if (state === "online") {
+        isServerOnline = true;
+        topStatusDot.classList.add("online");
+        topStatusText.textContent = text || "API Model: Online";
+        btnConnectApiTopText.textContent = "Chạy lại Model";
+      } else if (state === "running" || state === "connecting") {
+        isServerOnline = false;
+        topStatusDot.classList.add("pulsing");
+        topStatusText.textContent = text || "Đang kết nối API...";
+      } else {
+        isServerOnline = false;
+        topStatusDot.classList.add("offline");
+        topStatusText.textContent = text || "API Model: Offline";
+        btnConnectApiTopText.textContent = "Kết nối API Model";
+      }
+    }
+
+    function hideOverlay() {
+      if (overlay.style.display !== "none") {
+        overlay.style.opacity = "0";
+        setTimeout(() => { 
+          overlay.style.display = "none"; 
+        }, 400);
+      }
+    }
+
+    function showOverlay() {
+      overlay.style.display = "flex";
+      setTimeout(() => { 
+        overlay.style.opacity = "1"; 
+      }, 10);
+    }
+
+    function updateStep(stepNum, status, message) {
+      const stepElem = document.getElementById(`step-${stepNum}`);
+      if (!stepElem) return;
+      stepElem.className = `step-item ${status}`;
+      const descElem = stepElem.querySelector(".step-desc");
+      if (descElem && message) descElem.textContent = message;
+
+      const iconElem = stepElem.querySelector(".step-icon i");
+      if (iconElem) {
+        if (status === "running") iconElem.className = "fa-solid fa-spinner fa-spin";
+        else if (status === "done") iconElem.className = "fa-solid fa-check";
+        else if (status === "error") iconElem.className = "fa-solid fa-xmark";
+        else iconElem.className = "fa-solid fa-circle";
+      }
+    }
+
+    // ========================================================================
+    // KIỂM TRA ONLINE BACKEND API MODEL
+    // ========================================================================
+    async function checkBackendOnline() {
+      if (isExecutingKernel) return;
+
+      const config = getConfig();
+      if (!config.token) return;
+
+      try {
+        const res = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ userName: config.user, kernelSlug: config.slug })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === "RUNNING") {
+            updateStatusUI("online", "API Model: Online");
+            return true;
+          } else {
+            updateStatusUI("offline", "API Model: Offline");
+            showOverlay();
+            return false;
+          }
+        }
+      } catch (e) {
+        console.warn("Status check error:", e);
+      }
+      return false;
+    }
+
+    // ========================================================================
+    // GỌI KHỞI ĐỘNG VÀ KẾT NỐI API MODEL
+    // ========================================================================
+    async function startKaggleNotebookExecution() {
+      if (isExecutingKernel) {
+        showToast("Hệ thống đang tiến hành kích hoạt API Model...", "info");
+        return;
+      }
+
+      const config = getConfig();
+      if (!config.token) {
+        showToast("Vui lòng cấu hình Token API Model trước!", "error");
+        openSettingsModal();
+        return;
+      }
+
+      isExecutingKernel = true;
+      btnConnectApiTop.disabled = true;
+      btnConnectApiOverlay.disabled = true;
+      btnConnectApiTopText.textContent = "Đang kích hoạt...";
+      btnConnectApiOverlayText.textContent = "ĐANG KẾT NỐI API MODEL...";
+
+      showOverlay();
+      stepsContainer.style.display = "block";
+      cmdBadgeWrapper.style.display = "none";
+      overlaySubText.textContent = "Đang kết nối tới máy chủ API Model và nạp dữ liệu...";
+
+      // Reset các bước
+      updateStep(1, "running", "1. Khởi tạo phiên làm việc API Model...");
+      updateStep(2, "", "2. Cấp phát tài nguyên máy chủ Model...");
+      updateStep(3, "", "3. Nạp trọng số mô hình AI & tối ưu hóa...");
+      updateStep(4, "", "4. Thiết lập kết nối API Model & giao diện...");
+      updateStatusUI("running", "Đang gửi lệnh API...");
+
+      // Kiểm tra trước: Nếu API Model đang chạy sẵn (RUNNING), kết nối ngay mà không kill phiên cũ
+      try {
+        const preCheck = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ userName: config.user, kernelSlug: config.slug })
+        });
+        if (preCheck.ok) {
+          const preData = await preCheck.json();
+          if (preData.status === "RUNNING") {
+            showToast("Phát hiện API Model đang sẵn sàng! Đang kết nối...", "info");
+            updateStep(1, "done", "1. Phiên làm việc API Model đã sẵn sàng!");
+            updateStep(2, "done", "2. Tài nguyên máy chủ đã được cấp phát!");
+            updateStep(3, "running", "3. Đang đồng bộ giao diện API Model...");
+            frame.src = config.ngrok;
+            startMonitorExecution(config);
+            return;
+          }
+        }
+      } catch (e) {}
+
+      try {
+        // Bước 1: Tải tệp cấu hình Notebook
+        let nbJson = null;
+        try {
+          const res = await fetch(DEFAULT_CONFIG.notebookUrl);
+          if (!res.ok) throw new Error("Fetch notebook error");
+          nbJson = await res.json();
+        } catch (e) {
+          const resFallback = await fetch(DEFAULT_CONFIG.fallbackNotebookUrl);
+          if (!resFallback.ok) throw new Error("Không thể tải tệp floodkaggleapi.ipynb");
+          nbJson = await resFallback.json();
+        }
+
+        // Xóa output cũ và format source thành chuỗi (chuẩn API)
+        if (nbJson && Array.isArray(nbJson.cells)) {
+          nbJson.cells.forEach(cell => {
+            if (cell.cell_type === "code") {
+              cell.outputs = [];
+            }
+            if (Array.isArray(cell.source)) {
+              cell.source = cell.source.join("");
+            }
+          });
+        }
+
+        const fullSlug = `${config.user}/${config.slug}`;
+        const payload = {
+          slug: fullSlug,
+          newTitle: DEFAULT_CONFIG.kernelTitle,
+          text: JSON.stringify(nbJson),
+          language: "python",
+          kernelType: "notebook",
+          isPrivate: false,
+          enableGpu: true,
+          enableInternet: true
+        };
+
+        // Gọi endpoint để Lưu & Chạy toàn bộ mô hình
+        const kaggleRes = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${config.token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!kaggleRes.ok) {
+          const errText = await kaggleRes.text();
+          throw new Error(`API Model lỗi (HTTP ${kaggleRes.status}): ${errText}`);
+        }
+
+        const result = await kaggleRes.json();
+        if (result.error) {
+          throw new Error(`API Model báo lỗi: ${result.error}`);
+        }
+
+        const ver = result.versionNumber || "mới";
+        updateStep(1, "done", `1. Đã khởi tạo phiên API Model thành công (Phiên bản #${ver})!`);
+        updateStep(2, "running", "2. Đang phân bổ tài nguyên máy chủ...");
+        updateStatusUI("running", "API Model đang khởi tạo...");
+        showToast("Đã kích hoạt API Model thành công!", "success");
+
+        // Bước 2 & 3: Polling trạng thái Session & Ngrok
+        startMonitorExecution(config);
+
+      } catch (err) {
+        console.error("Lỗi khởi chạy API Model:", err);
+        updateStep(1, "error", `1. Lỗi: ${err.message}`);
+        updateStatusUI("offline", "Kích hoạt thất bại");
+        showToast(err.message, "error");
+        
+        isExecutingKernel = false;
+        btnConnectApiTop.disabled = false;
+        btnConnectApiOverlay.disabled = false;
+        btnConnectApiTopText.textContent = "Kết nối API Model";
+        btnConnectApiOverlayText.textContent = "THỬ LẠI KẾT NỐI API MODEL";
+        cmdBadgeWrapper.style.display = "flex";
+      }
+    }
+
+    // Theo dõi tiến trình thực thi của máy chủ và phát hiện khi mở cổng dịch vụ
+    function startMonitorExecution(config) {
+      if (monitorTimer) clearInterval(monitorTimer);
+      let seconds = 0;
+      const MAX_WAIT_SECONDS = 240; // 4 phút tối đa
+
+      monitorTimer = setInterval(async () => {
+        seconds += 3;
+
+        // 1. Kiểm tra trạng thái Session trên máy chủ
+        try {
+          const statusRes = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${config.token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ userName: config.user, kernelSlug: config.slug })
+          });
+
+          if (statusRes.ok) {
+            const data = await statusRes.json();
+            const kStatus = data.status; // "QUEUED", "RUNNING", "COMPLETE"
+
+            if (kStatus === "RUNNING") {
+              updateStep(2, "done", "2. Đã cấp phát tài nguyên máy chủ thành công!");
+              updateStep(3, "running", `3. Đang thực thi nạp mô hình AI (${seconds}s)...`);
+            } else if (kStatus === "QUEUED") {
+              updateStep(2, "running", `2. Đang chờ xếp hàng phân bổ tài nguyên (${seconds}s)...`);
+            }
+          }
+        } catch (e) {}
+
+        // 2. Kiểm tra xem backend đã phản hồi chưa
+        let isOnline = false;
+        try {
+          await fetch(`${config.ngrok}/`, {
+            mode: "no-cors",
+            headers: { "ngrok-skip-browser-warning": "true" }
+          });
+          if (seconds >= 15) {
+            isOnline = true;
+          }
+        } catch (e) {}
+
+        if (isOnline) {
+          clearInterval(monitorTimer);
+          updateStep(3, "done", "3. Đã nạp thành công mô hình AI!");
+          updateStep(4, "done", "4. Thiết lập kết nối API Model thành công!");
+          updateStatusUI("online", "API Model: Online");
+
+          overlaySubText.textContent = "🎉 Kết nối máy chủ API Model thành công! Đang nạp giao diện...";
+          showToast("API Model đã online! Đang mở giao diện...", "success");
+
+          // Nạp lại iframe với URL mới nhất
+          frame.src = config.ngrok;
+
+          setTimeout(() => {
+            hideOverlay();
+            isExecutingKernel = false;
+            btnConnectApiTop.disabled = false;
+            btnConnectApiOverlay.disabled = false;
+            btnConnectApiTopText.textContent = "Chạy lại Model";
+            btnConnectApiOverlayText.textContent = "KẾT NỐI API MODEL";
+            cmdBadgeWrapper.style.display = "flex";
+          }, 1200);
+          return;
+        }
+
+        // Timeout
+        if (seconds >= MAX_WAIT_SECONDS) {
+          clearInterval(monitorTimer);
+          isExecutingKernel = false;
+          btnConnectApiTop.disabled = false;
+          btnConnectApiOverlay.disabled = false;
+          btnConnectApiTopText.textContent = "Thử lại API";
+          btnConnectApiOverlayText.textContent = "KẾT NỐI LẠI API MODEL";
+          updateStep(4, "error", "4. Quá thời gian chờ (4 phút). Vui lòng thử lại hoặc kiểm tra kết nối API.");
+          cmdBadgeWrapper.style.display = "flex";
+          showToast("Quá thời gian kết nối. Vui lòng kiểm tra lại.", "error");
+        }
+      }, 3000);
+    }
+
+    // ========================================================================
+    // MODAL SETTINGS
+    // ========================================================================
+    function openSettingsModal() {
+      const config = getConfig();
+      inputKaggleToken.value = config.token;
+      inputKaggleUser.value = config.user;
+      inputKaggleSlug.value = config.slug;
+      inputNgrokUrl.value = config.ngrok;
+      settingsModal.style.display = "flex";
+    }
+
+    function closeSettingsModal() {
+      settingsModal.style.display = "none";
+    }
+
+    btnOpenSettings.addEventListener("click", openSettingsModal);
+    btnCloseSettings.addEventListener("click", closeSettingsModal);
+    settingsModal.addEventListener("click", (e) => {
+      if (e.target === settingsModal) closeSettingsModal();
+    });
+
+    btnSaveSettings.addEventListener("click", () => {
+      const token = inputKaggleToken.value.trim();
+      const user = inputKaggleUser.value.trim();
+      const slug = inputKaggleSlug.value.trim();
+      const ngrok = inputNgrokUrl.value.trim();
+
+      if (token) localStorage.setItem("flood_kaggle_token", token);
+      if (user) localStorage.setItem("flood_kaggle_user", user);
+      if (slug) localStorage.setItem("flood_kaggle_slug", slug);
+      if (ngrok) {
+        localStorage.setItem("flood_ngrok_url", ngrok);
+        frame.src = ngrok;
+      }
+
+      showToast("Đã lưu cấu hình thành công!", "success");
+      closeSettingsModal();
+      checkBackendOnline();
+    });
+
+    btnTestKaggleApi.addEventListener("click", async () => {
+      const token = inputKaggleToken.value.trim() || DEFAULT_CONFIG.kaggleToken;
+      const user = inputKaggleUser.value.trim() || DEFAULT_CONFIG.username;
+      const slug = inputKaggleSlug.value.trim() || DEFAULT_CONFIG.kernelSlug;
+
+      btnTestKaggleApi.disabled = true;
+      btnTestKaggleApi.innerHTML = '<span class="mini-spinner"></span> Đang thử...';
+
+      try {
+        const res = await fetch("https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ userName: user, kernelSlug: slug })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`API Model kết nối tốt! Trạng thái hiện tại: ${data.status || 'READY'}`, "success");
+        } else {
+          showToast(`API Model trả về HTTP ${res.status}. Vui lòng kiểm tra lại Token!`, "error");
+        }
+      } catch (err) {
+        showToast(`Lỗi kết nối: ${err.message}`, "error");
+      } finally {
+        btnTestKaggleApi.disabled = false;
+        btnTestKaggleApi.innerHTML = '<i class="fa-solid fa-plug"></i> Kiểm tra API';
+      }
+    });
+
+    // ========================================================================
+    // SỰ KIỆN GIAO DIỆN
+    // ========================================================================
+    btnConnectApiTop.addEventListener("click", startKaggleNotebookExecution);
+    btnConnectApiOverlay.addEventListener("click", startKaggleNotebookExecution);
+
+    const btnEnterAppDirectly = document.getElementById("btnEnterAppDirectly");
+    if (btnEnterAppDirectly) {
+      btnEnterAppDirectly.addEventListener("click", () => {
+        const config = getConfig();
+        frame.src = config.ngrok;
+        updateStatusUI("online", "API Model (Đang mở)");
+        hideOverlay();
+        showToast("Đang mở trực tiếp giao diện Model...", "info");
+      });
+    }
+
+    btnReloadFrame.addEventListener("click", () => {
+      const config = getConfig();
+      frame.src = config.ngrok;
+      showToast("Đang tải lại giao diện Model...", "info");
+    });
+
+    btnStatusPill.addEventListener("click", () => {
+      showToast("Đang làm mới trạng thái kết nối API Model...", "info");
+      checkBackendOnline();
+    });
+
+    frame.addEventListener("load", () => {
+      // Khi iframe hoàn thành tải
+      setTimeout(() => {
+        checkBackendOnline();
+      }, 500);
+    });
+
+    // Định kỳ quét trạng thái backend mỗi 5 giây
+    checkBackendOnline();
+    setInterval(checkBackendOnline, 5000);
+  </script>
+
 </body>
 </html>
