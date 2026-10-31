@@ -34,20 +34,6 @@ from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
 
-# Vá lỗi Gradio 4.44 trên Linux (Kaggle) khi postprocess chuỗi Base64 Data URI
-# Ngăn chặn Gradio gọi os.stat() gây lỗi [Errno 36] File name too long
-try:
-    import gradio.image_utils as _iu
-    _orig_postprocess_image = _iu.postprocess_image
-    def _safe_postprocess_image(value, cache_dir, format, watermark=None):
-        if isinstance(value, str) and value.startswith("data:image/"):
-            from gradio.data_classes import FileData
-            return FileData(path=value, orig_name="frame.jpg")
-        return _orig_postprocess_image(value, cache_dir, format, watermark=watermark)
-    _iu.postprocess_image = _safe_postprocess_image
-except Exception as _patch_err:
-    print(f"Warning: Gradio image patch: {_patch_err}")
-
 # Vá lỗi tương thích giữa Gradio 4.44 và Starlette các phiên bản
 try:
     import starlette.templating
@@ -1110,22 +1096,6 @@ def on_tab5_flood_conf_changed(new_conf, state_data):
         return gr.skip(), gr.skip(), gr.skip(), f"<div style='color:red;'>⚠️ Lỗi cập nhật ngưỡng: {e}</div>"
 
 
-
-def encode_frame_to_base64_data_uri(frame_bgr, quality=70, max_w=640):
-    """Mã hóa frame BGR thành base64 data URI tối ưu dung lượng, hoàn toàn trong RAM (0 ghi đĩa, 0 request phụ)."""
-    if frame_bgr is None:
-        return None
-    h, w = frame_bgr.shape[:2]
-    if w > max_w:
-        target_h = int(h * (max_w / float(w)))
-        frame_bgr = cv2.resize(frame_bgr, (max_w, target_h), interpolation=cv2.INTER_AREA)
-    success, buffer = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    if not success:
-        return None
-    b64_str = base64.b64encode(buffer).decode('ascii')
-    return f"data:image/jpeg;base64,{b64_str}"
-
-
 @spaces.GPU(duration=120)
 def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     """Chạy suy luận trực tiếp trên Ảnh, Video hoặc Camera theo Thủy chuẩn Cột mốc."""
@@ -1152,9 +1122,8 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             flood_conf=cur_conf, mode="Cột mốc"
         )
         LIVE_STREAM_STATE["active"] = False
-        hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-        yield hud_b64, df, alarm_html, status_info
+        yield hud_rgb, df, alarm_html, status_info
         return
 
     # Trường hợp 2: Camera Stream
@@ -1232,12 +1201,10 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 1
-    target_fps = 25.0
+    step = 2
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1259,13 +1226,9 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 flood_conf=cur_conf, mode="Cột mốc"
             )
 
-            hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-            yield hud_b64, df, alarm_html, status_info
-
-            elapsed = time.time() - t_frame_start
-            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
-            time.sleep(sleep_sec)
+            yield hud_rgb, df, alarm_html, status_info
+            time.sleep(0.075)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -1595,9 +1558,8 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             base_frame, vehicle_model, veh_conf=cur_conf, fps=1.0, is_single_image=True, location_name=loc_name
         )
         LIVE_STREAM_STATE["active"] = False
-        hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> | Số phương tiện: <b>{report.vehicle_count}</b> | Trạng thái: <b>{report.status_label}</b></div>"
-        yield hud_b64, df, alarm_html, status_info
+        yield hud_rgb, df, alarm_html, status_info
         return
 
     # Trường hợp 2: Camera Stream
@@ -1664,12 +1626,10 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 1
-    target_fps = fps_vid or 25.0
+    step = 2
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1691,13 +1651,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                 is_single_image=False, location_name=loc_name, sim_time_s=sim_t
             )
 
-            hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Xe: <b>{report.vehicle_count}</b> ({report.status_label}) | Tốc độ: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
-            yield hud_b64, df, alarm_html, status_info
-
-            elapsed = time.time() - t_frame_start
-            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
-            time.sleep(sleep_sec)
+            yield hud_rgb, df, alarm_html, status_info
+            time.sleep(0.075)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -1895,8 +1851,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         LIVE_STREAM_STATE["active"] = False
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-        final_hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(final_hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
-        yield final_hud_b64, summary_df, alert_html, status_info
+        yield final_hud_rgb, summary_df, alert_html, status_info
         return
 
     # Trường hợp 3: Nguồn Video MP4
@@ -1925,12 +1880,10 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 1
-    target_fps = fps_vid or 25.0
+    step = 2
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1961,14 +1914,10 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 is_single_image=False, location_name=loc_name, sim_time_s=sim_t
             )
 
-            final_hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(final_hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-            yield final_hud_b64, summary_df, alert_html, status_info
-
-            elapsed = time.time() - t_frame_start
-            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
-            time.sleep(sleep_sec)
+            yield final_hud_rgb, summary_df, alert_html, status_info
+            time.sleep(0.075)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -2072,11 +2021,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
                 # CỘT BÊN PHẢI: HIỂN THỊ KHUNG HÌNH VIDEO & THIẾT LẬP MẪU MỐC THƯỚC ĐO
                 with gr.Column(scale=3):
-                    gr.Markdown("#### 🖼️ 2. Màn Hình Video & Kết Quả Phân Tích AI")
-                    tab5_live_display = gr.HTML(
-                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">🌊</span>Sẵn sàng phân tích video. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
-                        elem_id="tab5_live_display"
-                    )
+                    gr.Markdown("#### 🖼️ 2. Màn Hình Video & Thiết Lập Mẫu Mốc Thước Đo")
                     tab5_init_frame = None
                     if INIT_GAUGE_FRAME is not None:
                         tab5_init_prev = draw_multi_calibration_preview(
@@ -2089,15 +2034,14 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     if tab5_init_frame is None:
                         tab5_init_frame = INIT_GAUGE_FRAME
 
-                    with gr.Accordion("📍 Bảng Hiệu Chuẩn Mốc Đo (Chấm 3 Điểm Trên Khung Hình)", open=True):
-                        tab5_calib_canvas = gr.Image(
-                            value=tab5_init_frame,
-                            type="numpy",
-                            format="jpeg",
-                            show_label=False,
-                            interactive=True,
-                            elem_id="tab5_calib_canvas"
-                        )
+                    tab5_calib_canvas = gr.Image(
+                        value=tab5_init_frame,
+                        type="numpy",
+                        format="jpeg",
+                        show_label=False,
+                        interactive=True,
+                        elem_id="tab5_calib_canvas"
+                    )
                     tab5_setup_status = gr.HTML("", elem_id="tab5_setup_status")
                     tab5_click_state = gr.State(DEFAULT_TAB5_STATE.copy())
                     tab5_seek_slider = gr.Slider(
@@ -2185,19 +2129,14 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                 # CỘT BÊN PHẢI: MÀN HÌNH VIDEO GIÁM SÁT GIAO THÔNG & VÙNG LÀN ĐƯỜNG 4 GÓC
                 with gr.Column(scale=3):
                     gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Giao Thông & Chọn Làn Đường (Chấm 4 Góc)")
-                    traffic_live_display = gr.HTML(
-                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">🚗</span>Sẵn sàng phân tích giao thông. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
-                        elem_id="traffic_live_display"
+                    traffic_canvas = gr.Image(
+                        value=INIT_GAUGE_FRAME,
+                        type="numpy",
+                        format="jpeg",
+                        show_label=False,
+                        interactive=True,
+                        elem_id="traffic_canvas"
                     )
-                    with gr.Accordion("📍 Khung Thiết Lập Làn Đường ROI (Chấm 4 Góc)", open=True):
-                        traffic_canvas = gr.Image(
-                            value=INIT_GAUGE_FRAME,
-                            type="numpy",
-                            format="jpeg",
-                            show_label=False,
-                            interactive=True,
-                            elem_id="traffic_canvas"
-                        )
                     traffic_setup_status = gr.HTML(
                         "<div style='color:#38bdf8;'>💡 <b>Mẹo:</b> Nhấp <b>4 góc</b> trên màn hình để vẽ khung làn đường (chỉ tính xe đi vào khung). Khi đã đủ 4 góc, nhấp gần góc nào để kéo chỉnh lại góc đó!</div>",
                         elem_id="traffic_setup_status"
@@ -2276,20 +2215,15 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                 # CỘT BÊN PHẢI: MÀN HÌNH GIÁM SÁT TÍCH HỢP 2 TRONG 1
                 with gr.Column(scale=3):
                     gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện Realtime)")
-                    fusion_live_display = gr.HTML(
-                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">⚡</span>Sẵn sàng phân tích tích hợp. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
-                        elem_id="fusion_live_display"
+                    fusion_canvas = gr.Image(
+                        value=INIT_GAUGE_FRAME,
+                        type="numpy",
+                        format="jpeg",
+                        show_label=False,
+                        interactive=False,
+                        visible=True,
+                        elem_id="fusion_canvas"
                     )
-                    with gr.Accordion("📍 Khung Hình Preview & Điều Khiển", open=False):
-                        fusion_canvas = gr.Image(
-                            value=INIT_GAUGE_FRAME,
-                            type="numpy",
-                            format="jpeg",
-                            show_label=False,
-                            interactive=False,
-                            visible=True,
-                            elem_id="fusion_canvas"
-                        )
                     fusion_setup_status = gr.HTML(
                         "<div style='color:#38bdf8;'>💡 <b>Chế độ tích hợp:</b> Hệ thống chạy tuần tự Model 1 (Phân đoạn ngập & Đo độ sâu thủy chuẩn) sau đó đưa frame vào Model 2 (YOLOv8 + ByteTrack) để vẽ đồng thời lớp ngập và phương tiện.</div>",
                         elem_id="fusion_setup_status"
@@ -2307,13 +2241,13 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         tab5_live_event = btn_tab5_run_live.click(
             fn=run_video_tab5_live,
             inputs=[tab5_click_state, tab5_flood_conf, tab5_seek_slider],
-            outputs=[tab5_live_display, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
+            outputs=[tab5_calib_canvas, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
         )
 
         traffic_live_event = btn_traffic_run_live.click(
             fn=run_traffic_congestion_live,
             inputs=[traffic_state, traffic_veh_conf, traffic_seek_slider],
-            outputs=[traffic_live_display, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
+            outputs=[traffic_canvas, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
         )
 
         
@@ -2322,7 +2256,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         fusion_live_event = btn_fusion_run_live.click(
             fn=run_fusion_live,
             inputs=[fusion_state, fusion_flood_conf, fusion_veh_conf, fusion_seek_slider],
-            outputs=[fusion_live_display, fusion_stat_table, fusion_alarm_html, fusion_setup_status]
+            outputs=[fusion_canvas, fusion_stat_table, fusion_alarm_html, fusion_setup_status]
         )
 
         all_live_events = [tab5_live_event, traffic_live_event, fusion_live_event]
