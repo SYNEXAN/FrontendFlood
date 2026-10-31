@@ -135,35 +135,30 @@ async function resolveKaggleAuth(authInput) {
     return { username, key, token, authHeader };
 }
 
-// Helper kiểm tra trạng thái notebook trên Kaggle qua các ứng viên slug tương thích
+// Helper kiểm tra trạng thái notebook trên Kaggle chuẩn 100% theo tài khoản API đang kết nối
 async function checkKernelStatus(auth) {
-    const candidates = [
-        { userName: 'nguynthanhthit', kernelSlug: 'synexan-flood-backend-gpu' }
-    ];
-    if (auth.username && auth.username !== 'nguynthanhthit') {
-        candidates.push({ userName: auth.username, kernelSlug: 'synexan-flood-backend-gpu' });
+    if (!auth || !auth.username) {
+        return { status: 'NOT_FOUND', matchedCandidate: null };
     }
-
-    for (const cand of candidates) {
-        try {
-            const statusRes = await fetch('https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus', {
-                method: 'POST',
-                headers: {
-                    'Authorization': auth.authHeader,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(cand),
-                signal: AbortSignal.timeout(8000)
-            });
-            if (statusRes.ok) {
-                const statusData = await statusRes.json();
-                if (statusData && statusData.status) {
-                    return { status: statusData.status, matchedCandidate: cand };
-                }
+    const cand = { userName: auth.username, kernelSlug: 'synexan-flood-backend-gpu' };
+    try {
+        const statusRes = await fetch('https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus', {
+            method: 'POST',
+            headers: {
+                'Authorization': auth.authHeader,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(cand),
+            signal: AbortSignal.timeout(8000)
+        });
+        if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData && statusData.status) {
+                return { status: statusData.status, matchedCandidate: cand };
             }
-        } catch (_) {}
-    }
-    return { status: 'NOT_FOUND', matchedCandidate: candidates[0] };
+        }
+    } catch (_) {}
+    return { status: 'NOT_FOUND', matchedCandidate: cand };
 }
 
 // Endpoint kiểm tra tính hợp lệ của Token/Key (Ẩn tên định danh, chỉ thông báo hợp lệ)
@@ -236,7 +231,10 @@ app.post('/api/kaggle-auto-run', async (req, res) => {
             });
         }
 
-        const targetUser = auth.username || 'nguynthanhthit';
+        const targetUser = auth.username;
+        if (!targetUser) {
+            throw new Error('Không xác định được tên tài khoản Kaggle từ thông tin xác thực.');
+        }
         const kernelSlug = `${targetUser}/synexan-flood-backend-gpu`;
 
         const savePayload = JSON.stringify({
