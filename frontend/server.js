@@ -1,10 +1,12 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const https = require('https');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://visible-lots-union-nova.trycloudflare.com";
+const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://mask-rica-categories-lined.trycloudflare.com";
 let activeBackendUrl = DEFAULT_BACKEND_URL;
 
 app.use(cors());
@@ -30,78 +32,238 @@ app.get('/api/config', (req, res) => {
     });
 });
 
-// Server-side Heartbeat Status Check (Dùng fetch an toàn, tránh 100% lỗi ERR_HTTP_HEADERS_SENT)
-app.get('/api/status', async (req, res) => {
+// Server-side Heartbeat Status Check (Tránh hoàn toàn lỗi CORS của trình duyệt)
+app.get('/api/status', (req, res) => {
     const targetUrl = req.query.target || activeBackendUrl;
-    if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
-        return res.json({ online: false, error: 'Chưa có URL Backend nào được cấu hình' });
+    let checkUrl = targetUrl;
+    if (!checkUrl.endsWith('/config')) {
+        checkUrl = checkUrl.replace(/\/+$/, '') + '/config';
     }
 
-    let checkUrl = targetUrl.replace(/\/+$/, '') + '/config';
     const t0 = Date.now();
-
     try {
-        const response = await fetch(checkUrl, {
+        const urlObj = new URL(checkUrl);
+        const reqOptions = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+            path: urlObj.pathname,
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'ngrok-skip-browser-warning': 'true'
             },
-            signal: AbortSignal.timeout(5000)
+            timeout: 5000
+        };
+
+        const clientReq = https.request(reqOptions, (backendRes) => {
+            const latencyMs = Date.now() - t0;
+            if (backendRes.statusCode >= 200 && backendRes.statusCode < 400) {
+                res.json({ online: true, statusCode: backendRes.statusCode, latencyMs });
+            } else {
+                res.json({ online: false, statusCode: backendRes.statusCode, latencyMs });
+            }
         });
 
-        const latencyMs = Date.now() - t0;
-        return res.json({
-            online: response.ok,
-            statusCode: response.status,
-            latencyMs
+        clientReq.on('timeout', () => {
+            clientReq.destroy();
+            res.json({ online: false, error: 'timeout' });
         });
+
+        clientReq.on('error', (err) => {
+            res.json({ online: false, error: err.message });
+        });
+
+        clientReq.end();
     } catch (err) {
-        return res.json({
-            online: false,
-            error: err.name === 'TimeoutError' ? 'timeout' : err.message
-        });
+        res.json({ online: false, error: err.message });
     }
 });
 
-// Secure Server-side Auto-Wake Endpoint (No CORS issue, No leaked credentials)
-app.post('/api/wake-up', async (req, res) => {
-    const username = process.env.KAGGLE_USERNAME;
-    const key = process.env.KAGGLE_KEY;
-
-    if (!username || !key) {
-        return res.status(200).json({
-            status: "manual_mode",
-            message: "Kaggle credentials not set in Render environment. Please start Kaggle notebook manually."
+// Helper to make HTTPS requests returning a Promise
+function kaggleApiRequest(options, postBody = null) {
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => { data += chunk; });
+            res.on('end', () => {
+                let json = null;
+                try { json = JSON.parse(data); } catch(e) {}
+                resolve({ statusCode: res.statusCode, headers: res.headers, raw: data, json });
+            });
         });
+        req.on('error', err => reject(err));
+        req.on('timeout', () => { req.destroy(); reject(new Error('Kaggle API Timeout')); });
+        if (postBody) {
+            req.write(postBody);
+        }
+        req.end();
+    });
+}
+
+// Smart parser for user input (supports kaggle.json, KGAT token, username:key, or raw key)
+async function resolveKaggleAuth(authInput) {
+    let username = '';
+    let key = '';
+    let token = '';
+
+    if (typeof authInput === 'object' && authInput !== null) {
+        username = authInput.username || '';
+        key = authInput.key || '';
+        token = authInput.token || '';
+    } else if (typeof authInput === 'string') {
+        const trimmed = authInput.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                username = parsed.username || '';
+                key = parsed.key || '';
+                token = parsed.token || '';
+            } catch (e) {}
+        } else if (trimmed.startsWith('KGAT_')) {
+            token = trimmed;
+        } else if (trimmed.includes(':') && !trimmed.startsWith('http')) {
+            const parts = trimmed.split(':');
+            username = parts[0].trim();
+            key = parts.slice(1).join(':').trim();
+        } else if (trimmed.length === 32) {
+            key = trimmed;
+        } else {
+            token = trimmed;
+        }
     }
 
-    const kernelId = process.env.KAGGLE_KERNEL_ID || `${username}/synexan-flood-backend-gpu`;
-    const postData = JSON.stringify({ id: kernelId });
-    const auth = Buffer.from(`${username}:${key}`).toString('base64');
+    let authHeader = '';
+    if (token) {
+        authHeader = `Bearer ${token}`;
+    } else if (username && key) {
+        const basic = Buffer.from(`${username}:${key}`).toString('base64');
+        authHeader = `Basic ${basic}`;
+    } else {
+        throw new Error('Vui lòng dán file kaggle.json hoặc nhập Kaggle Token (KGAT_...).');
+    }
 
-    try {
-        const kaggleRes = await fetch('https://www.kaggle.com/api/v1/kernels/push', {
+    // If username is not known (e.g. user provided KGAT token), discover it from Kaggle API
+    if (!username) {
+        const listBody = JSON.stringify({ group: 'PROFILE', pageSize: 5 });
+        const listRes = await kaggleApiRequest({
+            hostname: 'api.kaggle.com',
+            port: 443,
+            path: '/v1/kernels.KernelsApiService/ListKernels',
             method: 'POST',
             headers: {
-                'Authorization': `Basic ${auth}`,
+                'Authorization': authHeader,
                 'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData).toString()
+                'Content-Length': Buffer.byteLength(listBody)
             },
-            body: postData,
-            signal: AbortSignal.timeout(10000)
-        });
+            timeout: 10000
+        }, listBody);
 
-        const data = await kaggleRes.text();
-        console.log("[INFO] Kaggle API response:", kaggleRes.status, data);
-        return res.json({
-            status: "trigger_sent",
-            statusCode: kaggleRes.status,
-            message: "Auto-wake signal dispatched to Kaggle GPU."
+        if (listRes.json && Array.isArray(listRes.json.kernels) && listRes.json.kernels.length > 0) {
+            const ref = listRes.json.kernels[0].ref || '';
+            username = ref.split('/')[0];
+        } else {
+            throw new Error('Xác thực Token thành công nhưng tài khoản chưa có Kernel để tự nhận diện Username. Vui lòng dán nội dung file kaggle.json hoặc nhập username:key.');
+        }
+    }
+
+    return { username, key, token, authHeader };
+}
+
+// Endpoint kiểm tra nhanh tính hợp lệ của Token/Kaggle Key
+app.post('/api/kaggle-check', async (req, res) => {
+    try {
+        const { authInput } = req.body;
+        if (!authInput) {
+            return res.status(400).json({ error: 'Chưa cung cấp thông tin xác thực.' });
+        }
+        const auth = await resolveKaggleAuth(authInput);
+        res.json({
+            success: true,
+            username: auth.username,
+            message: `Xác thực thành công tài khoản Kaggle: ${auth.username}`
         });
     } catch (err) {
-        console.error("[ERROR] Kaggle wake request failed:", err);
-        return res.status(500).json({ status: "error", error: err.message });
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Endpoint tự động tạo & chạy notebook trên tài khoản Kaggle mới
+app.post('/api/kaggle-auto-run', async (req, res) => {
+    try {
+        const { authInput } = req.body;
+        if (!authInput) {
+            return res.status(400).json({ error: 'Chưa cung cấp thông tin xác thực Kaggle.' });
+        }
+
+        const auth = await resolveKaggleAuth(authInput);
+        console.log(`[INFO] 🚀 Khởi chạy GPU Tesla T4 cho tài khoản: ${auth.username}`);
+
+        // Read official notebook
+        const nbPath = path.join(__dirname, 'public', 'synexan_flood_gpu.ipynb');
+        let rawContent = '';
+        if (fs.existsSync(nbPath)) {
+            rawContent = fs.readFileSync(nbPath, 'utf8');
+        } else {
+            const fallbackPath = path.join(__dirname, '..', 'notebooks', 'synexan_flood_gpu.ipynb');
+            rawContent = fs.readFileSync(fallbackPath, 'utf8');
+        }
+
+        const nb = JSON.parse(rawContent);
+        if (Array.isArray(nb.cells)) {
+            nb.cells.forEach(cell => {
+                if (cell.cell_type === 'code') {
+                    cell.outputs = [];
+                    cell.execution_count = null;
+                }
+                if (Array.isArray(cell.source)) {
+                    cell.source = cell.source.join('');
+                }
+            });
+        }
+
+        const kernelSlug = `${auth.username}/synexan-flood-backend-gpu`;
+        const savePayload = JSON.stringify({
+            slug: kernelSlug,
+            newTitle: "synexan-flood-backend-gpu",
+            text: JSON.stringify(nb),
+            language: "python",
+            kernelType: "notebook",
+            isPrivate: true,
+            enableGpu: true,
+            enableInternet: true
+        });
+
+        const kaggleRes = await kaggleApiRequest({
+            hostname: 'api.kaggle.com',
+            port: 443,
+            path: '/v1/kernels.KernelsApiService/SaveKernel',
+            method: 'POST',
+            headers: {
+                'Authorization': auth.authHeader,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(savePayload)
+            },
+            timeout: 30000
+        }, savePayload);
+
+        if (kaggleRes.statusCode >= 200 && kaggleRes.statusCode < 300) {
+            const ver = kaggleRes.json ? kaggleRes.json.versionNumber : 1;
+            return res.json({
+                success: true,
+                username: auth.username,
+                kernelSlug: kernelSlug,
+                versionNumber: ver,
+                message: `Đã kích hoạt GPU Tesla T4 thành công cho tài khoản ${auth.username}! (Phiên bản #${ver})`
+            });
+        } else {
+            const errMsg = kaggleRes.json ? (kaggleRes.json.message || kaggleRes.json.error) : kaggleRes.raw;
+            return res.status(kaggleRes.statusCode || 500).json({
+                error: `Kaggle API lỗi (HTTP ${kaggleRes.statusCode}): ${errMsg || 'Không xác định'}`
+            });
+        }
+    } catch (err) {
+        console.error('[ERROR] Kaggle auto-run failed:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -110,7 +272,7 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
     console.log(`🚀 Flood Demo Frontend Server running on port ${PORT}`);
-    console.log(`📡 Default AI Backend target: ${activeBackendUrl || "(Chưa có URL)"}`);
+    console.log(`📡 Default AI Backend target: ${activeBackendUrl}`);
 });
