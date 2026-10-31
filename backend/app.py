@@ -2094,6 +2094,10 @@ custom_css = """
     margin-top: 0px !important;
     padding-top: 0px !important;
 }
+#tab5_calib_canvas img, #traffic_canvas img {
+    cursor: crosshair !important;
+    pointer-events: auto !important;
+}
 #tab5_setup_status:empty, #traffic_setup_status:empty {
     display: none !important;
 }
@@ -2193,10 +2197,13 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         type="numpy",
                         format="jpeg",
                         show_label=False,
-                        interactive=True,
+                        interactive=False,
                         elem_id="tab5_calib_canvas"
                     )
-                    tab5_setup_status = gr.HTML("", elem_id="tab5_setup_status")
+                    tab5_setup_status = gr.HTML(
+                        "<div style='color:#38bdf8;'>💡 <b>Hướng dẫn gán mốc:</b> Nhấp chuột trực tiếp lên màn hình video bên dưới để chấm lần lượt <b>3 điểm</b> (<b>1. Đáy</b> ➔ <b>2. Giữa H/2</b> ➔ <b>3. Đỉnh</b>), sau đó bấm <b>'Lưu'</b>!</div>",
+                        elem_id="tab5_setup_status"
+                    )
                     tab5_click_state = gr.State(DEFAULT_TAB5_STATE.copy())
                     tab5_seek_slider = gr.Slider(
                         minimum=0,
@@ -2288,7 +2295,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         type="numpy",
                         format="jpeg",
                         show_label=False,
-                        interactive=True,
+                        interactive=False,
                         elem_id="traffic_canvas"
                     )
                     traffic_setup_status = gr.HTML(
