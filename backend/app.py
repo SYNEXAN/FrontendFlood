@@ -470,6 +470,12 @@ DEFAULT_FUSION_STATE = {
     "fps": INIT_FPS,
     "current_frame_idx": 0,
     "frame_key": "fusion_base",
+    "gauge_step": 0,
+    "p_bot": None,
+    "p_mid": None,
+    "p_top": None,
+    "strip_width": 20,
+    "draft_roi_pts": [],
 }
 
 
@@ -1757,6 +1763,237 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
 # ==============================================================================
 # HỆ THỐNG TÍCH HỢP (DUAL FUSION): ĐO ĐỘ SÂU NGẬP & GIÁM SÁT ÙN TẮC (TUẦN TỰ 2 MODEL)
 # ==============================================================================
+
+def _render_fusion_base_preview(base_frame_bgr, state_data=None):
+    """Vẽ preview đồng thời cả Mốc Thủy Chuẩn (SCSG-Net) và Khung Làn Đường 4 góc lên màn hình Tab 3."""
+    if base_frame_bgr is None:
+        return None
+    step = state_data.get("gauge_step", 0) if state_data else 0
+    p_bot = state_data.get("p_bot") if state_data else None
+    p_mid = state_data.get("p_mid") if state_data else None
+    p_top = state_data.get("p_top") if state_data else None
+    draft_name = state_data.get("draft_name", "") if state_data else ""
+    h_start = float(state_data.get("h_start", 0.0) if state_data else 0.0)
+    h_end = float(state_data.get("h_end", 100.0) if state_data else 100.0)
+    strip_w = int(state_data.get("strip_width", 20) if state_data else 20)
+
+    # 1. Vẽ mốc thủy chuẩn (các mốc đã lưu + mốc đang chấm nháp)
+    prev = draw_multi_calibration_preview(
+        base_frame_bgr,
+        global_multi_gauge_manager,
+        active_gauge_id=global_multi_gauge_manager.active_id,
+        p_bottom=p_bot,
+        p_top=p_top,
+        p_mid=p_mid,
+        name=draft_name,
+        h_start_cm=h_start,
+        h_end_cm=h_end,
+        click_step=step,
+        calib_mode="3_points",
+        strip_width=strip_w
+    )
+
+    # 2. Vẽ tiếp khung 4 góc làn đường lên cùng khung hình
+    draft_roi = state_data.get("draft_roi_pts", []) if state_data else []
+    prev_with_roi = draw_traffic_roi_preview(
+        prev,
+        roi_points_norm=global_traffic_analyzer.roi_points_norm,
+        draft_points=draft_roi,
+        roi_label=global_traffic_analyzer.roi_label,
+    )
+    return cv2.cvtColor(prev_with_roi, cv2.COLOR_BGR2RGB)
+
+
+def on_fusion_canvas_click(evt: gr.SelectData, state_data, calib_target, name, h_start_cm, h_end_cm, strip_width, roi_label):
+    """Xử lý nhấp chuột trực tiếp trên màn hình Tab 3: chuyển đổi giữa chấm Cột Mốc (3 điểm) hoặc Khung Làn Đường (4 góc)."""
+    if not state_data or get_state_base_frame(state_data) is None:
+        return gr.skip(), state_data, "<div style='color:orange;'>⚠️ Chưa có khung hình để chấm điểm!</div>"
+
+    base_frame = get_state_base_frame(state_data)
+    h, w = base_frame.shape[:2]
+    x, y = int(evt.index[0]), int(evt.index[1])
+    strip_w = max(4, min(100, int(strip_width if strip_width is not None else 20)))
+    h_start = float(h_start_cm if h_start_cm is not None else 0.0)
+    h_end = float(h_end_cm if h_end_cm is not None else 100.0)
+    draft_name = str(name).strip() if (name and str(name).strip()) else ""
+
+    state_data["strip_width"] = strip_w
+    state_data["h_start"] = h_start
+    state_data["h_end"] = h_end
+    state_data["draft_name"] = draft_name
+
+    target_str = str(calib_target).lower() if calib_target else ""
+
+    # Chế độ 1: Chấm Cột Mốc (3 điểm)
+    if "mốc" in target_str or "gauge" in target_str:
+        step = state_data.get("gauge_step", 0)
+        if step == 0 or step >= 3:
+            state_data["p_bot"] = (x, y)
+            state_data["p_mid"] = None
+            state_data["p_top"] = None
+            state_data["gauge_step"] = 1
+            msg = f"<div style='color:#38bdf8;'>📍 <b>[Mốc: Bước 1/3]</b> Đã chấm <b>1. Điểm đầu (Đáy 0cm)</b> tại ({x}, {y}). 👉 Tiếp theo hãy chấm <b>2. Điểm giữa (Vạch H/2)</b> trên ảnh!</div>"
+            return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+        elif step == 1:
+            state_data["p_mid"] = (x, y)
+            state_data["gauge_step"] = 2
+            msg = f"<div style='color:#38bdf8;'>📍 <b>[Mốc: Bước 2/3]</b> Đã chấm <b>2. Điểm giữa (H/2)</b> tại ({x}, {y}). 👉 Tiếp theo hãy chấm <b>3. Điểm cuối (Đỉnh)</b> trên ảnh!</div>"
+            return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+        else:
+            state_data["p_top"] = (x, y)
+            state_data["gauge_step"] = 3
+            msg = "<div style='color:#22c55e;'>✅ <b>[Mốc: Bước 3/3]</b> Đã chấm đủ 3 điểm (Đáy, Giữa, Đỉnh)! Nhập <b>Tên cột mốc</b>, <b>Điểm đầu</b>, <b>Điểm cuối</b> rồi bấm <b>'💾 Lưu Cột Mốc'</b>.</div>"
+            return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+
+    # Chế độ 2: Chấm Khung Làn Đường (4 góc)
+    lbl = str(roi_label).strip() if (roi_label and str(roi_label).strip()) else "Làn đường giám sát"
+    global_traffic_analyzer.roi_label = lbl
+
+    # Nếu đã có đủ 4 góc -> kéo góc gần nhất tới vị trí mới
+    if global_traffic_analyzer.roi_points_norm and len(global_traffic_analyzer.roi_points_norm) == 4:
+        pts_px = [(rx * w, ry * h) for rx, ry in global_traffic_analyzer.roi_points_norm]
+        nearest_idx = min(range(4), key=lambda i: math.hypot(pts_px[i][0] - x, pts_px[i][1] - y))
+        new_norm = list(global_traffic_analyzer.roi_points_norm)
+        new_norm[nearest_idx] = (max(0.0, min(1.0, float(x) / max(1.0, float(w)))), max(0.0, min(1.0, float(y) / max(1.0, float(h)))))
+        global_traffic_analyzer.set_roi_norm(new_norm, label=lbl)
+        state_data["draft_roi_pts"] = []
+        msg = f"<div style='color:#22c55e;'>📐 Đã dời <b>Góc {nearest_idx + 1}</b> tới ({x}, {y}). Khung làn đường <b>'{lbl}'</b> đã sẵn sàng!</div>"
+        return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+
+    draft_pts = list(state_data.get("draft_roi_pts", []))
+    draft_pts.append((x, y))
+
+    if len(draft_pts) < 4:
+        state_data["draft_roi_pts"] = draft_pts
+        rem = 4 - len(draft_pts)
+        msg = f"<div style='color:#38bdf8;'>📍 Đã chấm <b>Góc {len(draft_pts)}/4</b> tại ({x}, {y}). Hãy chấm tiếp <b>{rem} góc nữa</b> để khép kín khung làn đường!</div>"
+        return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+
+    norm_pts = [(max(0.0, min(1.0, float(px) / max(1.0, float(w)))), max(0.0, min(1.0, float(py) / max(1.0, float(h))))) for px, py in draft_pts[:4]]
+    global_traffic_analyzer.set_roi_norm(norm_pts, label=lbl)
+    state_data["draft_roi_pts"] = []
+    msg = f"<div style='color:#22c55e;'>✅ <b>Đã thiết lập khung 4 góc làn đường '{lbl}'!</b> Bạn có thể bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN'</b> hoặc chấm thêm cột mốc!</div>"
+    return _render_fusion_base_preview(base_frame, state_data), state_data, msg
+
+
+def on_fusion_save_gauge(state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
+    """Lưu cột mốc vừa chấm tại Tab 3 vào mạng lưới đa mốc toàn cục."""
+    strip_w = max(4, min(100, int(strip_width if strip_width is not None else 20)))
+    if not state_data or get_state_base_frame(state_data) is None:
+        return gr.skip(), state_data, "<div style='color:#ef4444;'>⚠️ Chưa có khung hình video!</div>", gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    base_frame = get_state_base_frame(state_data)
+    p_bot = state_data.get("p_bot")
+    p_mid = state_data.get("p_mid")
+    p_top = state_data.get("p_top")
+
+    if not p_bot or not p_mid or not p_top:
+        return gr.skip(), state_data, "<div style='color:#ef4444;'>⚠️ Vui lòng chấm đủ 3 điểm (1. Đáy, 2. Giữa, 3. Đỉnh) trước khi bấm Lưu!</div>", gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    h_start = float(h_start_cm if h_start_cm is not None else 0.0)
+    h_end = float(h_end_cm if h_end_cm is not None else 100.0)
+    if h_end <= h_start:
+        return gr.skip(), state_data, "<div style='color:#ef4444;'>⚠️ Điểm cuối (cm) phải lớn hơn Điểm đầu (cm)!</div>", gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    cfg_count = sum(1 for gx in global_multi_gauge_manager.gauges.values() if gx.is_configured)
+    clean_name = str(name).strip() if (name and str(name).strip()) else f"Cột mốc {cfg_count + 1}"
+
+    target_g = None
+    for gx in global_multi_gauge_manager.gauges.values():
+        if not gx.is_configured:
+            target_g = gx
+            global_multi_gauge_manager.set_active_gauge(gx.gauge_id)
+            break
+
+    if target_g is None:
+        new_gid = global_multi_gauge_manager.add_gauge(
+            name=clean_name, h_start_cm=h_start, h_end_cm=h_end, warning_cm=25.0
+        )
+        target_g = global_multi_gauge_manager.get_gauge(new_gid)
+
+    target_g.configure(
+        p_bottom=p_bot,
+        p_top=p_top,
+        p_mid=p_mid,
+        name=clean_name,
+        warning_cm=25.0,
+        base_frame=base_frame,
+        strip_width=strip_w,
+        h_start_cm=h_start,
+        h_end_cm=h_end,
+        calib_mode="3_points"
+    )
+    state_data["p_bot"] = None
+    state_data["p_mid"] = None
+    state_data["p_top"] = None
+    state_data["gauge_step"] = 0
+
+    choices = get_gauge_dropdown_choices()
+    sel_val = target_g.gauge_id if choices else None
+    msg = f"<div style='color:#22c55e;'>✅ Đã lưu <b>{clean_name}</b> [{h_start:.0f} → {h_end:.0f} cm] thành công!</div>"
+    return _render_fusion_base_preview(base_frame, state_data), state_data, msg, "", 0, 0, gr.update(choices=choices, value=sel_val)
+
+
+def on_fusion_reset_gauge(state_data, strip_width=20):
+    """Hủy các điểm đang chấm dở tại Tab 3."""
+    if state_data:
+        state_data["p_bot"] = None
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["gauge_step"] = 0
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return _render_fusion_base_preview(base, state_data), state_data, "<div style='color:#eab308;'>↩️ Đã hủy các điểm đang chấm dở.</div>", "", 0, 0
+
+
+def on_fusion_reset_all_gauges(state_data, strip_width=20):
+    """Xóa tất cả các cột mốc đã gán tại Tab 3."""
+    global_multi_gauge_manager.reset_all()
+    if state_data:
+        state_data["p_bot"] = None
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["gauge_step"] = 0
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return _render_fusion_base_preview(base, state_data), state_data, "<div style='color:#ef4444;'>🗑️ Đã xóa toàn bộ các cột mốc.</div>", "", 0, 0, gr.update(choices=[], value=None)
+
+
+def on_fusion_delete_gauge(active_gauge_str, state_data):
+    """Xóa mốc đang chọn khỏi mạng lưới tại Tab 3."""
+    if active_gauge_str:
+        g_id = str(active_gauge_str).split(" - ")[0].strip()
+        global_multi_gauge_manager.remove_gauge(g_id)
+    choices = get_gauge_dropdown_choices()
+    sel_val = choices[0][1] if choices else None
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return gr.update(choices=choices, value=sel_val), _render_fusion_base_preview(base, state_data), state_data, "<div style='color:#ef4444;'>🗑️ Đã xóa cột mốc được chọn.</div>"
+
+
+def on_fusion_clear_roi(state_data):
+    """Xóa khung làn đường 4 góc tại Tab 3."""
+    global_traffic_analyzer.clear_roi()
+    if state_data:
+        state_data["draft_roi_pts"] = []
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return _render_fusion_base_preview(base, state_data), state_data, "<div style='color:#eab308;'>🗑️ Đã xóa khung làn đường. Toàn bộ xe trên màn hình sẽ được theo dõi!</div>"
+
+
+def on_fusion_roi_label_change(roi_label, state_data):
+    """Đổi nhãn khung làn đường tại Tab 3."""
+    lbl = str(roi_label).strip() if (roi_label and str(roi_label).strip()) else "Làn đường giám sát"
+    global_traffic_analyzer.roi_label = lbl
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return _render_fusion_base_preview(base, state_data)
+
+
+def on_fusion_width_change(new_w, state_data, name, h_start_cm, h_end_cm):
+    """Kéo thả đổi bề rộng thước đo tại Tab 3."""
+    strip_w = max(4, min(100, int(new_w if new_w is not None else 20)))
+    if state_data:
+        state_data["strip_width"] = strip_w
+    base = get_state_base_frame(state_data, INIT_GAUGE_FRAME)
+    return _render_fusion_base_preview(base, state_data), state_data, f"<div style='color:#38bdf8;'>📏 Bề rộng thước đo: <b>{strip_w}px</b></div>"
+
+
 def on_fusion_switch_to_image_tab(img_rgb, state_data):
     stop_live_stream()
     global_traffic_analyzer.reset()
@@ -1814,12 +2051,18 @@ def on_fusion_video_loaded(video_file, state_data):
     ret, frame_bgr = cap.read()
     cap.release()
 
-    first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if ret and frame_bgr is not None else INIT_GAUGE_FRAME
-    set_state_base_frame(state_data, first_frame, "fusion_base")
+    if ret and frame_bgr is not None:
+        h_f, w_f = frame_bgr.shape[:2]
+        if w_f > 640:
+            frame_bgr = cv2.resize(frame_bgr, (640, int(h_f * 640.0 / w_f)), interpolation=cv2.INTER_AREA)
+    else:
+        frame_bgr = cv2.cvtColor(INIT_GAUGE_FRAME, cv2.COLOR_RGB2BGR) if INIT_GAUGE_FRAME is not None else None
+
+    set_state_base_frame(state_data, frame_bgr, "fusion_base")
     state_data["total_frames"] = total_frames
     slider_update = gr.Slider(minimum=0, maximum=max(1, total_frames - 1), value=0, step=1, label="Khung hình video", interactive=True)
-    msg = f"<div style='color:#22c55e;'>✅ <b>Đã tải video:</b> {Path(clean_path).name} ({total_frames} frames). Sẵn sàng phân tích tích hợp tuần tự 2 Model!</div>"
-    return first_frame, slider_update, state_data, msg
+    msg = f"<div style='color:#22c55e;'>🎬 <b>Đã nạp video:</b> {Path(clean_path).name} ({total_frames} frames). Hãy nhấp chuột lên màn hình để gán cột mốc hoặc làn đường, sau đó bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN'</b>!</div>"
+    return _render_fusion_base_preview(frame_bgr, state_data), slider_update, state_data, msg
 
 def on_fusion_camera_connect(cam_url, state_data):
     stop_live_stream()
@@ -1855,15 +2098,18 @@ def on_fusion_seek_frame(slider_val, state_data):
     ret, frame_bgr = cap.read()
     cap.release()
     if ret and frame_bgr is not None:
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        set_state_base_frame(state_data, frame_rgb, "fusion_base")
+        h_f, w_f = frame_bgr.shape[:2]
+        if w_f > 640:
+            frame_bgr = cv2.resize(frame_bgr, (640, int(h_f * 640.0 / w_f)), interpolation=cv2.INTER_AREA)
+        set_state_base_frame(state_data, frame_bgr, "fusion_base")
         state_data["current_frame_idx"] = int(slider_val)
-        return frame_rgb, state_data
+        return _render_fusion_base_preview(frame_bgr, state_data), state_data
     return gr.skip(), state_data
 
 
 def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
-    """Chạy suy luận TUẦN TỰ 2 Model (Model 1: Ngập Lụt -> Model 2: Phương Tiện & Ùn Tắc)."""
+    """Chạy suy luận SONG SONG (Parallel) 2 Model (Model 1: Ngập Lụt & Model 2: Phương Tiện & Ùn Tắc)."""
+    from concurrent.futures import ThreadPoolExecutor
     LIVE_STREAM_STATE["run_id"] += 1
     my_run_id = LIVE_STREAM_STATE["run_id"]
     LIVE_STREAM_STATE["active"] = True
@@ -1890,24 +2136,21 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
             flood_level = "BÁO ĐỘNG CẤP 1 (NGẬP NHẸ)"
             flood_color = "#eab308"
 
-        flood_alarm = f"<span style='color:{flood_color}; font-weight:700;'>{flood_level} ({depth_str})</span>"
         veh_count = traffic_rep.vehicle_count if traffic_rep else 0
-        status_label = traffic_rep.status_label if traffic_rep else "Bình thường"
+        status_label = traffic_rep.status_label if traffic_rep else "Thông thoáng"
         avg_speed = traffic_rep.avg_speed_kmh if traffic_rep else 0.0
 
         alert_html = f"""
-        <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:12px; padding:16px; margin-bottom:12px;'>
-            <div style='display:flex; justify-content:space-between; align-items:center;'>
-                <div>
-                    <span style='font-size:1.1rem; font-weight:700; color:#38bdf8;'>🌊 Mực Nước: </span>
-                    <span style='font-size:1.3rem; font-weight:800; color:{flood_color};'>{depth_str}</span>
-                    <span style='margin-left:8px; font-size:0.9rem; padding:3px 8px; border-radius:6px; background:rgba(255,255,255,0.1); color:{flood_color};'>{flood_level}</span>
-                </div>
-                <div>
-                    <span style='font-size:1.1rem; font-weight:700; color:#e2e8f0;'>🚗 Giao Thông: </span>
-                    <span style='font-size:1.2rem; font-weight:800; color:#38bdf8;'>{veh_count} xe</span>
-                    <span style='margin-left:8px; font-size:0.9rem; color:#94a3b8;'>({status_label} - {avg_speed:.1f} km/h)</span>
-                </div>
+        <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:12px; padding:14px 18px; margin-bottom:12px;'>
+            <div style='display:flex; align-items:center; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:10px;'>
+                <span style='font-size:1.1rem; font-weight:700; color:#38bdf8; min-width:115px;'>🌊 Mực Nước:</span>
+                <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:12px;'>{depth_str}</span>
+                <span style='font-size:0.88rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); color:{flood_color};'>{flood_level}</span>
+            </div>
+            <div style='display:flex; align-items:center;'>
+                <span style='font-size:1.1rem; font-weight:700; color:#e2e8f0; min-width:115px;'>🚗 Giao Thông:</span>
+                <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:12px;'>{veh_count} xe</span>
+                <span style='font-size:0.9rem; color:#94a3b8;'>({status_label} - Vận tốc TB: <b style="color:#e2e8f0;">{avg_speed:.1f} km/h</b>)</span>
             </div>
         </div>
         """
@@ -1932,19 +2175,27 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
         cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-        flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
-            base_frame, global_multi_gauge_manager, global_tab5_arbiter,
-            active_flood, None,
-            flood_conf=cur_flood_conf, mode="Cột mốc"
-        )
-        flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_flood = executor.submit(
+                process_single_frame_hybrid,
+                base_frame, global_multi_gauge_manager, global_tab5_arbiter,
+                active_flood, None,
+                flood_conf=cur_flood_conf, mode="Cột mốc"
+            )
+            fut_traffic = executor.submit(
+                global_traffic_analyzer.analyze_frame,
+                base_frame, vehicle_model, veh_conf=cur_veh_conf, fps=1.0, is_single_image=True, location_name=loc_name
+            )
+            flood_hud_rgb, _, _, flood_report = fut_flood.result()
+            _, _, _, traffic_report = fut_traffic.result()
 
-        final_hud_rgb, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
-            flood_hud_bgr, vehicle_model, veh_conf=cur_veh_conf, fps=1.0, is_single_image=True, location_name=loc_name
-        )
+        flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+        final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=True)
+        final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
+
         LIVE_STREAM_STATE["active"] = False
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-        status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+        status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích song song hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
         yield final_hud_rgb, summary_df, alert_html, status_info
         return
 
@@ -1961,43 +2212,50 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         last_seq = -1
         t_prev_yield = time.time()
         try:
-            while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-                ok, frame, frame_ts, seq = grabber.read_latest()
-                if not ok or frame is None or seq == last_seq:
-                    time.sleep(0.008)
-                    continue
-                last_seq = seq
-                if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
-                    break
-                try:
-                    cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-                    cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                    ok, frame, frame_ts, seq = grabber.read_latest()
+                    if not ok or frame is None or seq == last_seq:
+                        time.sleep(0.008)
+                        continue
+                    last_seq = seq
+                    if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
+                        break
+                    try:
+                        cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                        cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-                    flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
-                        frame, global_multi_gauge_manager, global_tab5_arbiter,
-                        active_flood, None,
-                        flood_conf=cur_flood_conf, mode="Cột mốc"
-                    )
-                    flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                        fut_flood = executor.submit(
+                            process_single_frame_hybrid,
+                            frame, global_multi_gauge_manager, global_tab5_arbiter,
+                            active_flood, None,
+                            flood_conf=cur_flood_conf, mode="Cột mốc"
+                        )
+                        fut_traffic = executor.submit(
+                            global_traffic_analyzer.analyze_frame,
+                            frame, vehicle_model, veh_conf=cur_veh_conf, fps=grabber.fps,
+                            is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
+                        )
+                        flood_hud_rgb, _, _, flood_report = fut_flood.result()
+                        _, _, _, traffic_report = fut_traffic.result()
 
-                    final_hud_rgb, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
-                        flood_hud_bgr, vehicle_model, veh_conf=cur_veh_conf, fps=grabber.fps,
-                        is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
-                    )
+                        flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                        final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
+                        final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
 
-                    summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-                    status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+                        summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                        status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live Song Song (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
 
-                    now = time.time()
-                    elapsed = now - t_prev_yield
-                    if elapsed < 0.033:
-                        time.sleep(0.033 - elapsed)
-                    t_prev_yield = time.time()
+                        now = time.time()
+                        elapsed = now - t_prev_yield
+                        if elapsed < 0.033:
+                            time.sleep(0.033 - elapsed)
+                        t_prev_yield = time.time()
 
-                    yield final_hud_rgb, summary_df, alert_html, status_info
-                except Exception as frame_err:
-                    print(f"⚠️ Lỗi Camera Fusion: {frame_err}")
-                    continue
+                        yield final_hud_rgb, summary_df, alert_html, status_info
+                    except Exception as frame_err:
+                        print(f"⚠️ Lỗi Camera Fusion: {frame_err}")
+                        continue
         except GeneratorExit:
             LIVE_STREAM_STATE["active"] = False
             return
@@ -2034,41 +2292,48 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
     step = 2
 
     try:
-        while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                cur_idx = 0
-                continue
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cur_idx = 0
+                    continue
 
-            cur_idx += 1
-            if (cur_idx % step) != 0:
-                continue
+                cur_idx += 1
+                if (cur_idx % step) != 0:
+                    continue
 
-            cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-            cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+                cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-            h_orig, w_orig = frame.shape[:2]
-            if w_orig > 640:
-                frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
 
-            flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
-                frame, global_multi_gauge_manager, global_tab5_arbiter,
-                active_flood, None,
-                flood_conf=cur_flood_conf, mode="Cột mốc"
-            )
-            flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                sim_t = float(cur_idx) / float(fps_vid)
+                fut_flood = executor.submit(
+                    process_single_frame_hybrid,
+                    frame, global_multi_gauge_manager, global_tab5_arbiter,
+                    active_flood, None,
+                    flood_conf=cur_flood_conf, mode="Cột mốc"
+                )
+                fut_traffic = executor.submit(
+                    global_traffic_analyzer.analyze_frame,
+                    frame, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
+                    is_single_image=False, location_name=loc_name, sim_time_s=sim_t
+                )
+                flood_hud_rgb, _, _, flood_report = fut_flood.result()
+                _, _, _, traffic_report = fut_traffic.result()
 
-            sim_t = float(cur_idx) / float(fps_vid)
-            final_hud_rgb, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
-                flood_hud_bgr, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
-                is_single_image=False, location_name=loc_name, sim_time_s=sim_t
-            )
+                flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
+                final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
 
-            summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-            status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-            yield final_hud_rgb, summary_df, alert_html, status_info
-            time.sleep(0.040)
+                summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> (Song song 2 Model) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+                yield final_hud_rgb, summary_df, alert_html, status_info
+                time.sleep(0.035)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -2090,11 +2355,11 @@ custom_css = """
     margin-bottom: 16px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.12);
 }
-#tab5_calib_canvas, #traffic_canvas {
+#tab5_calib_canvas, #traffic_canvas, #fusion_canvas {
     margin-top: 0px !important;
     padding-top: 0px !important;
 }
-#tab5_calib_canvas img, #traffic_canvas img {
+#tab5_calib_canvas img, #traffic_canvas img, #fusion_canvas img {
     cursor: crosshair !important;
     pointer-events: auto !important;
 }
@@ -2352,7 +2617,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                                 btn_fusion_connect_cam = gr.Button("Kết nối", variant="primary", scale=1)
 
                     with gr.Row():
-                        btn_fusion_run_live = gr.Button("🚀 BẮT ĐẦU DỰ ĐOÁN TÍCH HỢP (2 MODEL)", variant="primary", size="lg")
+                        btn_fusion_run_live = gr.Button("🚀 BẮT ĐẦU DỰ ĐOÁN", variant="primary", size="lg")
                         btn_fusion_stop_live = gr.Button("⏹️ Dừng Lại / Tạm Dừng", variant="stop")
 
                     fusion_alarm_html = gr.HTML("")
@@ -2360,7 +2625,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     fusion_stat_table = gr.DataFrame(
                         headers=["Chỉ Số Giám Sát", "Giá Trị"],
                         datatype=["str", "str"],
-                        label="📋 Bảng Chỉ Số Tích Hợp Thủy Văn & Giao Thông (Tuần Tự 2 Model)"
+                        label="📋 Bảng Chỉ Số Tích Hợp Thủy Văn & Giao Thông (Song Song 2 Model)"
                     )
 
                     with gr.Accordion("⚙️ Cài Đặt Ngưỡng Tự Tin 2 Model", open=False):
@@ -2373,9 +2638,9 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                             label="🚗 Ngưỡng Phát Hiện Phương Tiện (Vehicle Conf)"
                         )
 
-                # CỘT BÊN PHẢI: MÀN HÌNH GIÁM SÁT TÍCH HỢP 2 TRONG 1
+                # CỘT BÊN PHẢI: MÀN HÌNH GIÁM SÁT TÍCH HỢP 2 TRONG 1 & BỘ HIỆU CHUẨN
                 with gr.Column(scale=3):
-                    gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện Realtime)")
+                    gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện Song Song)")
                     fusion_canvas = gr.Image(
                         value=INIT_GAUGE_FRAME,
                         type="numpy",
@@ -2386,7 +2651,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         elem_id="fusion_canvas"
                     )
                     fusion_setup_status = gr.HTML(
-                        "<div style='color:#38bdf8;'>💡 <b>Chế độ tích hợp:</b> Hệ thống chạy tuần tự Model 1 (Phân đoạn ngập & Đo độ sâu thủy chuẩn) sau đó đưa frame vào Model 2 (YOLOv8 + ByteTrack) để vẽ đồng thời lớp ngập và phương tiện.</div>",
+                        "<div style='color:#38bdf8;'>💡 <b>Hướng dẫn hiệu chuẩn:</b> Chọn chế độ bên dưới và nhấp chuột trực tiếp lên màn hình video để chấm <b>Mốc (3 điểm)</b> hoặc <b>Khung làn đường (4 góc)</b>!</div>",
                         elem_id="fusion_setup_status"
                     )
                     fusion_seek_slider = gr.Slider(
@@ -2397,6 +2662,39 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         label="Khung hình video",
                         interactive=True
                     )
+
+                    fusion_calib_target = gr.Radio(
+                        choices=["📏 1. Chấm Cột Mốc Thủy Chuẩn (3 Điểm)", "🚗 2. Chấm Khung Làn Đường (4 Góc)"],
+                        value="📏 1. Chấm Cột Mốc Thủy Chuẩn (3 Điểm)",
+                        label="🎯 Chế độ hiệu chuẩn trên màn hình video",
+                        interactive=True
+                    )
+
+                    gr.Markdown("##### 📏 Thiết lập cột mốc thủy chuẩn (chọn chế độ mốc để chấm)")
+                    with gr.Row():
+                        fusion_name_input = gr.Textbox(value="", label="Tên cột mốc", placeholder="Nhập tên cột mốc...", scale=2)
+                        fusion_h_start_input = gr.Number(value=0, label="Điểm đầu (cm)", precision=1, scale=1)
+                        fusion_h_end_input = gr.Number(value=100, label="Điểm cuối (cm)", precision=1, scale=1)
+                        fusion_strip_width_slider = gr.Slider(minimum=4, maximum=100, value=20, step=2, label="Bề rộng mốc", interactive=True, scale=1)
+
+                    with gr.Row():
+                        btn_fusion_save_gauge = gr.Button("💾 Lưu Cột Mốc", variant="primary", scale=1)
+                        btn_fusion_reset_gauge = gr.Button("Hủy Chấm Mốc", variant="secondary", scale=1)
+                        btn_fusion_reset_all_gauges = gr.Button("🗑️ Xóa Tất Cả Mốc", variant="stop", scale=1)
+
+                    with gr.Row():
+                        fusion_active_dropdown = gr.Dropdown(choices=[], value=None, label="Danh sách cột mốc đã lưu", interactive=True, scale=3)
+                        btn_fusion_delete_gauge = gr.Button("Xóa Mốc Đang Chọn", variant="stop", scale=1)
+
+                    gr.Markdown("##### 🚗 Thiết lập khung làn đường (chọn chế độ làn đường để chấm)")
+                    with gr.Row():
+                        fusion_roi_label = gr.Textbox(
+                            value="Làn đường giám sát",
+                            label="Nhãn khung làn đường (4 góc)",
+                            placeholder="Nhập tên làn đường...",
+                            scale=3
+                        )
+                        btn_fusion_clear_roi = gr.Button("🗑️ Xóa Khung Làn Đường", variant="secondary", scale=1)
 
 # ==================== SỰ KIỆN CHUNG & TAB 1 (NGẬP LỤT) ====================
         tab5_live_event = btn_tab5_run_live.click(
@@ -2473,6 +2771,46 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
             fn=on_fusion_seek_frame,
             inputs=[fusion_seek_slider, fusion_state],
             outputs=[fusion_canvas, fusion_state]
+        )
+        fusion_canvas.select(
+            fn=on_fusion_canvas_click,
+            inputs=[fusion_state, fusion_calib_target, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_strip_width_slider, fusion_roi_label],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status]
+        )
+        btn_fusion_save_gauge.click(
+            fn=on_fusion_save_gauge,
+            inputs=[fusion_state, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_strip_width_slider],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_active_dropdown]
+        )
+        btn_fusion_reset_gauge.click(
+            fn=on_fusion_reset_gauge,
+            inputs=[fusion_state, fusion_strip_width_slider],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status, fusion_name_input, fusion_h_start_input, fusion_h_end_input]
+        )
+        btn_fusion_reset_all_gauges.click(
+            fn=on_fusion_reset_all_gauges,
+            inputs=[fusion_state, fusion_strip_width_slider],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_active_dropdown]
+        )
+        btn_fusion_delete_gauge.click(
+            fn=on_fusion_delete_gauge,
+            inputs=[fusion_active_dropdown, fusion_state],
+            outputs=[fusion_active_dropdown, fusion_canvas, fusion_state, fusion_setup_status]
+        )
+        btn_fusion_clear_roi.click(
+            fn=on_fusion_clear_roi,
+            inputs=[fusion_state],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status]
+        )
+        fusion_roi_label.change(
+            fn=on_fusion_roi_label_change,
+            inputs=[fusion_roi_label, fusion_state],
+            outputs=[fusion_canvas]
+        )
+        fusion_strip_width_slider.change(
+            fn=on_fusion_width_change,
+            inputs=[fusion_strip_width_slider, fusion_state, fusion_name_input, fusion_h_start_input, fusion_h_end_input],
+            outputs=[fusion_canvas, fusion_state, fusion_setup_status]
         )
 
 
