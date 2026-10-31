@@ -3123,6 +3123,20 @@ async def heartbeat_check():
         "idle_timeout_seconds": IDLE_TIMEOUT_SECONDS
     })
 
+@demo.app.post("/shutdown")
+@demo.app.get("/shutdown")
+async def manual_shutdown():
+    print("[MANUAL SHUTDOWN] 🛑 Người dùng đã bấm tắt GPU Backend từ giao diện Settings!")
+    def do_exit():
+        time.sleep(0.5)
+        try:
+            os.system("pkill -f cloudflared")
+        except Exception:
+            pass
+        os._exit(0)
+    threading.Thread(target=do_exit, daemon=True).start()
+    return JSONResponse({"status": "shutting_down", "message": "GPU Backend đang tắt..."})
+
 def start_idle_watchdog():
     def watchdog_loop():
         print(f"[IDLE WATCHDOG] ⏱️ Bộ giám sát tự động tắt được kích hoạt (Timeout: {IDLE_TIMEOUT_SECONDS // 60} phút).")

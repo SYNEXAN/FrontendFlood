@@ -298,6 +298,23 @@ app.post('/api/kaggle-status', async (req, res) => {
     }
 });
 
+// Endpoint chủ động tắt máy chủ GPU tức thì theo yêu cầu người dùng
+app.post('/api/backend-shutdown', async (req, res) => {
+    try {
+        if (activeBackendUrl) {
+            console.log(`[INFO] 🛑 Đang gửi tín hiệu dừng máy chủ GPU tới: ${activeBackendUrl}/shutdown`);
+            await fetch(`${activeBackendUrl}/shutdown`, {
+                method: 'POST',
+                signal: AbortSignal.timeout(3500)
+            }).catch(() => {});
+        }
+        activeBackendUrl = "";
+        return res.json({ success: true, message: "Đã gửi tín hiệu tắt máy chủ GPU thành công." });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // Fallback all routes to index.html for SPA
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
