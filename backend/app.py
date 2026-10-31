@@ -3096,12 +3096,12 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
 
 # ==============================================================================
-# FASTAPI REALTIME STREAMING & IDLE AUTO-SHUTDOWN WATCHDOG (30 PHÚT TỰ TẮT)
+# FASTAPI REALTIME STREAMING & IDLE AUTO-SHUTDOWN WATCHDOG (15 PHÚT TỰ TẮT)
 # ==============================================================================
 import threading
 
 LAST_ACTIVITY_TIME = time.time()
-IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", 1800))  # 30 phút mặc định
+IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", 900))  # 15 phút mặc định
 
 @demo.app.middleware("http")
 async def app_lifecycle_middleware(request: Request, call_next):

@@ -589,7 +589,7 @@
       </div>
 
       <div style="font-size: 13px; color: #94a3b8; margin-bottom: 14px; line-height: 1.4;">
-        💡 GPU Tesla T4 (30h/tuần). Khi hết quota, chỉ cần nạp API mới để tự động tạo và chạy tiếp.
+        💡 GPU Tesla T4 (30h/tuần). Tự tắt sau 15p rời web để bảo toàn quota, tự khởi động lại khi vào lại web.
       </div>
 
       <div class="form-group">
@@ -607,13 +607,10 @@
       </div>
 
       <div class="modal-actions" style="margin-top: 18px; display: flex; gap: 8px;">
-        <button id="btnTestKaggleApi" class="btn-secondary" style="flex: 1; min-width: 95px; padding: 10px 8px; font-size: 13px;">
+        <button id="btnTestKaggleApi" class="btn-secondary" style="flex: 1; min-width: 110px; padding: 10px 8px; font-size: 13px;">
           <i class="fa-solid fa-plug"></i> Kiểm Tra
         </button>
-        <button id="btnStopBackendGpu" class="btn-danger" style="flex: 1; min-width: 95px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px 8px; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
-          <i class="fa-solid fa-power-off"></i> Tắt GPU
-        </button>
-        <button id="btnAutoStartGpu" class="btn-primary" style="flex: 1.4; min-width: 135px; background: linear-gradient(135deg, #2563eb, #1d4ed8); font-weight: 600; padding: 10px 10px; font-size: 13px;">
+        <button id="btnAutoStartGpu" class="btn-primary" style="flex: 1.8; min-width: 145px; background: linear-gradient(135deg, #2563eb, #1d4ed8); font-weight: 600; padding: 10px 10px; font-size: 13px;">
           <i class="fa-solid fa-rocket"></i> Kích Hoạt GPU
         </button>
       </div>
@@ -867,21 +864,21 @@
         const ver = data.versionNumber || "mới";
 
         if (data.alreadyRunning) {
-          updateStep(1, "done", `1. GPU Tesla T4 đang chạy sẵn trên tài khoản ${username}!`);
+          updateStep(1, "done", `1. GPU Tesla T4 đang chạy sẵn sàng!`);
           updateStep(2, "done", "2. Đã phân bổ GPU Tesla T4 thành công!");
           updateStep(3, "running", "3. Đang đồng bộ mô hình AI & kết nối Cloudflare...");
-          updateStatusUI("running", `Đang kết nối GPU ${username}...`);
-          showToast(`Phát hiện GPU đang chạy sẵn trên tài khoản ${username}!`, "info");
+          updateStatusUI("running", "Đang kết nối GPU Tesla T4...");
+          showToast("Phát hiện GPU đang chạy sẵn sàng!", "info");
         } else if (data.alreadyQueued) {
-          updateStep(1, "done", `1. Notebook đang xếp hàng trên tài khoản ${username}...`);
+          updateStep(1, "done", `1. Notebook đang xếp hàng tài nguyên GPU...`);
           updateStep(2, "running", "2. Đang chờ phân bổ GPU Tesla T4...");
-          updateStatusUI("running", `Đang chờ GPU ${username}...`);
-          showToast(`Notebook đang xếp hàng tài nguyên GPU!`, "info");
+          updateStatusUI("running", "Đang chờ cấp phát GPU...");
+          showToast("Notebook đang xếp hàng tài nguyên GPU!", "info");
         } else {
-          updateStep(1, "done", `1. Đã khởi tạo notebook trên tài khoản ${username} (Phiên bản #${ver})!`);
+          updateStep(1, "done", `1. Đã khởi tạo notebook GPU thành công (Phiên bản #${ver})!`);
           updateStep(2, "running", "2. Đang phân bổ GPU Tesla T4 và khởi động dịch vụ...");
-          updateStatusUI("running", `GPU ${username} đang nạp...`);
-          showToast(`Đã kích hoạt GPU cho tài khoản ${username}!`, "success");
+          updateStatusUI("running", "GPU Tesla T4 đang nạp mô hình...");
+          showToast("Đã kích hoạt GPU Tesla T4 thành công!", "success");
         }
 
         // Bắt đầu theo dõi backend cho đến khi online
@@ -1015,29 +1012,7 @@
     });
 
     
-    const btnStopBackendGpu = document.getElementById("btnStopBackendGpu");
-    if (btnStopBackendGpu) {
-      btnStopBackendGpu.addEventListener("click", async () => {
-        if (!confirm("Bạn có chắc muốn tắt máy chủ GPU ngay lập tức để tiết kiệm giờ quota không?")) return;
-        btnStopBackendGpu.disabled = true;
-        btnStopBackendGpu.innerHTML = '<span class="mini-spinner"></span> Đang tắt...';
-        try {
-          await fetch("/api/backend-shutdown", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-          });
-          showToast("🛑 Đã tắt máy chủ GPU thành công để bảo toàn quota.", "info");
-          closeSettingsModal();
-          updateStatusUI("offline", "🔴 GPU Tesla T4: Đã tắt");
-          showOverlay("Máy chủ GPU đã dừng", "Bạn đã chủ động tắt máy chủ để tiết kiệm giờ GPU. Bấm 'Kích Hoạt GPU' khi cần sử dụng tiếp.");
-        } catch (e) {
-          showToast(`Lỗi: ${e.message}`, "error");
-        } finally {
-          btnStopBackendGpu.disabled = false;
-          btnStopBackendGpu.innerHTML = '<i class="fa-solid fa-power-off"></i> Tắt GPU';
-        }
-      });
-    }
+
 
     btnAutoStartGpu.addEventListener("click", () => {
       const auth = inputSmartKey.value.trim();
