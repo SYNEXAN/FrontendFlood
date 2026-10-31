@@ -2097,6 +2097,9 @@ custom_css = """
 #tab5_setup_status:empty, #traffic_setup_status:empty {
     display: none !important;
 }
+.toast-wrap, .toast-body, .toast, div[data-testid="toast"] {
+    display: none !important;
+}
 """
 
 with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.themes.Soft(), css=custom_css) as demo:
@@ -2415,64 +2418,54 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         btn_fusion_stop_live.click(
             fn=on_tab5_stop_button,
             inputs=None,
-            outputs=[fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_setup_status]
         )
 
         tab_item_fusion.select(
-            fn=on_tab5_stop_button,
+            fn=stop_live_stream,
             inputs=None,
-            outputs=[fusion_setup_status],
-            cancels=all_live_events
+            outputs=None
         )
 
         tab_fusion_image.select(
             fn=on_fusion_switch_to_image_tab,
             inputs=[fusion_upload_image, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         tab_fusion_video.select(
             fn=on_fusion_switch_to_video_tab,
             inputs=[fusion_upload_video, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         tab_fusion_camera.select(
             fn=on_fusion_switch_to_camera_tab,
             inputs=[fusion_cam_preset, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         fusion_upload_image.change(
             fn=on_fusion_image_loaded,
             inputs=[fusion_upload_image, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         fusion_upload_video.change(
             fn=on_fusion_video_loaded,
             inputs=[fusion_upload_video, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         fusion_cam_preset.change(
             fn=on_fusion_camera_connect,
             inputs=[fusion_cam_preset, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         btn_fusion_connect_cam.click(
             fn=on_fusion_camera_connect,
             inputs=[fusion_cam_preset, fusion_state],
-            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_seek_slider, fusion_state, fusion_setup_status]
         )
         fusion_seek_slider.release(
             fn=on_fusion_seek_frame,
             inputs=[fusion_seek_slider, fusion_state],
-            outputs=[fusion_canvas, fusion_state],
-            cancels=all_live_events
+            outputs=[fusion_canvas, fusion_state]
         )
 
 
@@ -2480,48 +2473,41 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         btn_tab5_stop_live.click(
             fn=on_tab5_stop_button,
             inputs=None,
-            outputs=[tab5_setup_status],
-            cancels=all_live_events
+            outputs=[tab5_setup_status]
         )
         btn_traffic_stop_live.click(
             fn=on_tab5_stop_button,
             inputs=None,
-            outputs=[traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_setup_status]
         )
 
-        # Khi chuyển qua lại giữa 2 Tab chính (Đo Độ Sâu Ngập <-> Đo Độ Ùn Tắc) -> tự động ngắt luồng đang chạy
+        # Khi chuyển qua lại giữa các Tab chính -> tự động ngắt luồng đang chạy êm ái không văng lỗi
         tab_item_5.select(
-            fn=on_tab5_stop_button,
+            fn=stop_live_stream,
             inputs=None,
-            outputs=[traffic_setup_status],
-            cancels=all_live_events
+            outputs=None
         )
         tab_item_traffic.select(
-            fn=on_tab5_stop_button,
+            fn=stop_live_stream,
             inputs=None,
-            outputs=[tab5_setup_status],
-            cancels=all_live_events
+            outputs=None
         )
 
         # Sự kiện chuyển 3 tab con Ảnh / Video / Camera ở Tab 1 (Ngập lụt)
         tab_input_image.select(
             fn=on_tab5_switch_to_image_tab,
             inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         tab_input_video.select(
             fn=on_tab5_switch_to_video_tab,
             inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         tab_input_camera.select(
             fn=on_tab5_switch_to_camera_tab,
             inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
 
         # Xóa mốc đã lưu tại Tab 1
@@ -2542,32 +2528,27 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         tab5_upload_image.change(
             fn=on_tab5_image_loaded,
             inputs=[tab5_upload_image, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         tab5_cam_preset.change(
             fn=on_tab5_camera_connect,
             inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         btn_tab5_connect_cam.click(
             fn=on_tab5_camera_connect,
             inputs=[tab5_cam_preset, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         tab5_upload_video.change(
             fn=on_tab5_video_loaded,
             inputs=[tab5_upload_video, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_seek_slider, tab5_click_state, tab5_setup_status, tab5_active_dropdown]
         )
         tab5_seek_slider.release(
             fn=on_tab5_seek_frame,
             inputs=[tab5_seek_slider, tab5_click_state, tab5_name_input, tab5_h_start_input, tab5_h_end_input, tab5_strip_width_slider],
-            outputs=[tab5_calib_canvas, tab5_click_state],
-            cancels=all_live_events
+            outputs=[tab5_calib_canvas, tab5_click_state]
         )
         tab5_calib_canvas.select(
             fn=on_tab5_canvas_click,
@@ -2599,50 +2580,42 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         tab_traffic_image.select(
             fn=on_traffic_switch_to_image_tab,
             inputs=[traffic_upload_image, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         tab_traffic_video.select(
             fn=on_traffic_switch_to_video_tab,
             inputs=[traffic_upload_video, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         tab_traffic_camera.select(
             fn=on_traffic_switch_to_camera_tab,
             inputs=[traffic_cam_preset, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         traffic_upload_image.change(
             fn=on_traffic_image_loaded,
             inputs=[traffic_upload_image, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         traffic_upload_video.change(
             fn=on_traffic_video_loaded,
             inputs=[traffic_upload_video, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         traffic_cam_preset.change(
             fn=on_traffic_camera_connect,
             inputs=[traffic_cam_preset, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         btn_traffic_connect_cam.click(
             fn=on_traffic_camera_connect,
             inputs=[traffic_cam_preset, traffic_state],
-            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_seek_slider, traffic_state, traffic_setup_status]
         )
         traffic_seek_slider.release(
             fn=on_traffic_seek_frame,
             inputs=[traffic_seek_slider, traffic_state],
-            outputs=[traffic_canvas, traffic_state],
-            cancels=all_live_events
+            outputs=[traffic_canvas, traffic_state]
         )
         traffic_canvas.select(
             fn=on_traffic_canvas_click,
@@ -2691,4 +2664,4 @@ STREAMING_HEADERS = {
 
 if __name__ == "__main__":
     demo.queue(default_concurrency_limit=10)
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=True, show_error=True)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True, show_error=False)

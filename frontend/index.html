@@ -803,10 +803,10 @@
         if (res.ok) {
           const data = await res.json();
           if (data.online) {
-            updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
+            updateStatusUI("online", `Backend GPU: Online (${data.latencyMs || 0}ms)`);
             return true;
           } else {
-            updateStatusUI("offline", "🔴 Backend GPU: Offline");
+            updateStatusUI("offline", "Backend GPU: Offline");
             return false;
           }
         }
@@ -824,17 +824,17 @@
         });
         const elapsed = Math.round(performance.now() - t0);
         if (res.ok) {
-          updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
+          updateStatusUI("online", `Backend GPU: Online (${elapsed}ms)`);
           return true;
         }
       } catch (directErr) {
         if (isServerOnline) {
-          updateStatusUI("online", "🟢 Backend GPU: Online");
+          updateStatusUI("online", "Backend GPU: Online");
           return true;
         }
       }
 
-      updateStatusUI("offline", "🔴 Backend GPU: Offline");
+      updateStatusUI("offline", "Backend GPU: Offline");
       return false;
     }
 
@@ -1163,7 +1163,7 @@
     });
 
     frame.addEventListener("load", () => {
-      updateStatusUI("online", "🟢 Backend GPU: Online");
+      updateStatusUI("online", "Backend GPU: Online");
       showToast("Giao diện AI Model đã sẵn sàng!", "success");
       setTimeout(() => {
         checkBackendOnline();
