@@ -2072,7 +2072,11 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
                 # CỘT BÊN PHẢI: HIỂN THỊ KHUNG HÌNH VIDEO & THIẾT LẬP MẪU MỐC THƯỚC ĐO
                 with gr.Column(scale=3):
-                    gr.Markdown("#### 🖼️ 2. Màn Hình Video & Thiết Lập Mẫu Mốc Thước Đo")
+                    gr.Markdown("#### 🖼️ 2. Màn Hình Video & Kết Quả Phân Tích AI")
+                    tab5_live_display = gr.HTML(
+                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">🌊</span>Sẵn sàng phân tích video. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
+                        elem_id="tab5_live_display"
+                    )
                     tab5_init_frame = None
                     if INIT_GAUGE_FRAME is not None:
                         tab5_init_prev = draw_multi_calibration_preview(
@@ -2085,14 +2089,15 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     if tab5_init_frame is None:
                         tab5_init_frame = INIT_GAUGE_FRAME
 
-                    tab5_calib_canvas = gr.Image(
-                        value=tab5_init_frame,
-                        type="numpy",
-                        format="jpeg",
-                        show_label=False,
-                        interactive=True,
-                        elem_id="tab5_calib_canvas"
-                    )
+                    with gr.Accordion("📍 Bảng Hiệu Chuẩn Mốc Đo (Chấm 3 Điểm Trên Khung Hình)", open=True):
+                        tab5_calib_canvas = gr.Image(
+                            value=tab5_init_frame,
+                            type="numpy",
+                            format="jpeg",
+                            show_label=False,
+                            interactive=True,
+                            elem_id="tab5_calib_canvas"
+                        )
                     tab5_setup_status = gr.HTML("", elem_id="tab5_setup_status")
                     tab5_click_state = gr.State(DEFAULT_TAB5_STATE.copy())
                     tab5_seek_slider = gr.Slider(
@@ -2302,7 +2307,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         tab5_live_event = btn_tab5_run_live.click(
             fn=run_video_tab5_live,
             inputs=[tab5_click_state, tab5_flood_conf, tab5_seek_slider],
-            outputs=[tab5_calib_canvas, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
+            outputs=[tab5_live_display, tab5_stat_table, tab5_alarm_html, tab5_setup_status]
         )
 
         traffic_live_event = btn_traffic_run_live.click(
