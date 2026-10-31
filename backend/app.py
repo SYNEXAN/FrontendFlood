@@ -42,6 +42,11 @@ from ultralytics import YOLO
 # Gradio sẽ nén trực tiếp trong RAM và gửi Base64 Data URI trong luồng SSE.
 # Trình duyệt nhận frame và hiển thị tức thì trên canvas gốc, 0 độ trễ, không giật lag.
 try:
+    try:
+        from gradio.data_classes import ImageData as _ImageCls
+    except ImportError:
+        from gradio.data_classes import FileData as _ImageCls
+
     import gradio_client.utils as _gcu
     _orig_is_http_url_like = _gcu.is_http_url_like
     def _patched_is_http_url_like(possible_url) -> bool:
@@ -49,28 +54,20 @@ try:
             return True
         return _orig_is_http_url_like(possible_url)
     _gcu.is_http_url_like = _patched_is_http_url_like
-except Exception:
-    pass
+    try:
+        import gradio.client_utils as _g_cu
+        _g_cu.is_http_url_like = _patched_is_http_url_like
+    except Exception:
+        pass
 
-try:
-    import gradio.client_utils as _g_cu
-    _g_cu.is_http_url_like = _patched_is_http_url_like
-except Exception:
-    pass
-
-try:
-    import gradio.image_utils as _iu
-    from gradio.data_classes import ImageData
-
-    _orig_postprocess_image = _iu.postprocess_image
-
-    def _fast_postprocess_image(value, cache_dir=None, format="jpeg", watermark=None):
+    _orig_image_postprocess = gr.Image.postprocess
+    def _fast_image_postprocess(self, value):
         if value is None:
             return None
-        if isinstance(value, ImageData):
+        if isinstance(value, _ImageCls):
             return value
         if isinstance(value, str) and value.startswith("data:image/"):
-            return ImageData(url=value, path=value, orig_name="frame.jpg")
+            return _ImageCls(url=value, path=value, orig_name="frame.jpg")
         
         # Xử lý numpy array (hud_rgb, frame video, preview thước đo)
         if isinstance(value, np.ndarray):
@@ -89,19 +86,33 @@ try:
             if success:
                 b64_str = base64.b64encode(buf).decode("ascii")
                 b64_uri = f"data:image/jpeg;base64,{b64_str}"
-                return ImageData(url=b64_uri, path=b64_uri, orig_name="frame.jpg")
+                return _ImageCls(url=b64_uri, path=b64_uri, orig_name="frame.jpg")
 
         # Xử lý PIL Image
         if isinstance(value, Image.Image):
             arr = np.array(value)
-            return _fast_postprocess_image(arr, cache_dir=cache_dir, format=format, watermark=watermark)
+            return _fast_image_postprocess(self, arr)
 
-        return _orig_postprocess_image(value, cache_dir=cache_dir, format=format, watermark=watermark)
+        return _orig_image_postprocess(self, value)
 
-    _iu.postprocess_image = _fast_postprocess_image
+    gr.Image.postprocess = _fast_image_postprocess
+
+    # Đồng thời vá cả image_utils.postprocess_image làm phòng bị
+    try:
+        import gradio.image_utils as _iu
+        _orig_postprocess_image = _iu.postprocess_image
+        def _fast_iu_postprocess(value, cache_dir=None, format="jpeg", watermark=None):
+            if isinstance(value, np.ndarray):
+                return _fast_image_postprocess(None, value)
+            return _orig_postprocess_image(value, cache_dir=cache_dir, format=format, watermark=watermark)
+        _iu.postprocess_image = _fast_iu_postprocess
+    except Exception:
+        pass
+
     print("✅ Đã kích hoạt cơ chế Zero-Request Base64 Streaming cho gr.Image trên Gradio!")
 except Exception as _patch_err:
     print(f"⚠️ Cảnh báo khởi tạo image patch: {_patch_err}")
+
 
 # Vá lỗi tương thích giữa Gradio 4.44 và Starlette các phiên bản
 try:
