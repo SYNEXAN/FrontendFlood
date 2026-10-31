@@ -34,6 +34,20 @@ from PIL import Image
 import gradio as gr
 from ultralytics import YOLO
 
+# Vá lỗi Gradio 4.44 trên Linux (Kaggle) khi postprocess chuỗi Base64 Data URI
+# Ngăn chặn Gradio gọi os.stat() gây lỗi [Errno 36] File name too long
+try:
+    import gradio.image_utils as _iu
+    _orig_postprocess_image = _iu.postprocess_image
+    def _safe_postprocess_image(value, cache_dir, format, watermark=None):
+        if isinstance(value, str) and value.startswith("data:image/"):
+            from gradio.data_classes import FileData
+            return FileData(path=value, orig_name="frame.jpg")
+        return _orig_postprocess_image(value, cache_dir, format, watermark=watermark)
+    _iu.postprocess_image = _safe_postprocess_image
+except Exception as _patch_err:
+    print(f"Warning: Gradio image patch: {_patch_err}")
+
 # Vá lỗi tương thích giữa Gradio 4.44 và Starlette các phiên bản
 try:
     import starlette.templating
