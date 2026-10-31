@@ -2663,38 +2663,50 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                         interactive=True
                     )
 
-                    fusion_calib_target = gr.Radio(
-                        choices=["📏 1. Chấm Cột Mốc Thủy Chuẩn (3 Điểm)", "🚗 2. Chấm Khung Làn Đường (4 Góc)"],
-                        value="📏 1. Chấm Cột Mốc Thủy Chuẩn (3 Điểm)",
-                        label="🎯 Chế độ hiệu chuẩn trên màn hình video",
-                        interactive=True
-                    )
+                    fusion_calib_mode = gr.State("gauge")
 
-                    gr.Markdown("##### 📏 Thiết lập cột mốc thủy chuẩn (chọn chế độ mốc để chấm)")
-                    with gr.Row():
-                        fusion_name_input = gr.Textbox(value="", label="Tên cột mốc", placeholder="Nhập tên cột mốc...", scale=2)
-                        fusion_h_start_input = gr.Number(value=0, label="Điểm đầu (cm)", precision=1, scale=1)
-                        fusion_h_end_input = gr.Number(value=100, label="Điểm cuối (cm)", precision=1, scale=1)
-                        fusion_strip_width_slider = gr.Slider(minimum=4, maximum=100, value=20, step=2, label="Bề rộng mốc", interactive=True, scale=1)
+                    with gr.Tabs(selected="tab_item_fusion_gauge") as fusion_calib_tabs:
+                        with gr.TabItem("📏 Thiết Lập Cột Mốc Thủy Chuẩn", id="tab_item_fusion_gauge") as tab_item_fusion_gauge:
+                            gr.Markdown("##### Thông tin cột mốc")
+                            fusion_name_input = gr.Textbox(
+                                value="",
+                                label="Tên cột mốc",
+                                placeholder="Nhập tên cột mốc..."
+                            )
+                            with gr.Row():
+                                fusion_h_start_input = gr.Number(value=0, label="Điểm đầu (cm)", precision=1)
+                                fusion_h_end_input = gr.Number(value=100, label="Điểm cuối (cm)", precision=1)
+                            fusion_strip_width_slider = gr.Slider(
+                                minimum=4,
+                                maximum=100,
+                                value=20,
+                                step=2,
+                                label="Bề rộng cột mốc",
+                                interactive=True
+                            )
+                            with gr.Row():
+                                btn_fusion_save_gauge = gr.Button("Lưu", variant="primary", scale=1)
+                                btn_fusion_reset_gauge = gr.Button("Hủy", variant="secondary", scale=1)
+                                btn_fusion_reset_all_gauges = gr.Button("🗑️ Xóa tất cả mốc", variant="stop", scale=1)
+                            with gr.Row():
+                                fusion_active_dropdown = gr.Dropdown(
+                                    choices=get_gauge_dropdown_choices(),
+                                    value=None,
+                                    label="📍 Cột mốc đã lưu",
+                                    interactive=True,
+                                    scale=3
+                                )
+                                btn_fusion_delete_gauge = gr.Button("🗑️ Xóa cột mốc", variant="stop", scale=1)
 
-                    with gr.Row():
-                        btn_fusion_save_gauge = gr.Button("💾 Lưu Cột Mốc", variant="primary", scale=1)
-                        btn_fusion_reset_gauge = gr.Button("Hủy Chấm Mốc", variant="secondary", scale=1)
-                        btn_fusion_reset_all_gauges = gr.Button("🗑️ Xóa Tất Cả Mốc", variant="stop", scale=1)
-
-                    with gr.Row():
-                        fusion_active_dropdown = gr.Dropdown(choices=[], value=None, label="Danh sách cột mốc đã lưu", interactive=True, scale=3)
-                        btn_fusion_delete_gauge = gr.Button("Xóa Mốc Đang Chọn", variant="stop", scale=1)
-
-                    gr.Markdown("##### 🚗 Thiết lập khung làn đường (chọn chế độ làn đường để chấm)")
-                    with gr.Row():
-                        fusion_roi_label = gr.Textbox(
-                            value="Làn đường giám sát",
-                            label="Nhãn khung làn đường (4 góc)",
-                            placeholder="Nhập tên làn đường...",
-                            scale=3
-                        )
-                        btn_fusion_clear_roi = gr.Button("🗑️ Xóa Khung Làn Đường", variant="secondary", scale=1)
+                        with gr.TabItem("🚗 Thiết Lập Khung Làn Đường", id="tab_item_fusion_lane") as tab_item_fusion_lane:
+                            with gr.Row():
+                                fusion_roi_label = gr.Textbox(
+                                    value="Làn đường giám sát",
+                                    label="Nhãn khung làn đường (4 góc)",
+                                    placeholder="Nhập tên làn đường...",
+                                    scale=3
+                                )
+                                btn_fusion_clear_roi = gr.Button("🗑️ Xóa Khung Làn Đường", variant="secondary", scale=1)
 
 # ==================== SỰ KIỆN CHUNG & TAB 1 (NGẬP LỤT) ====================
         tab5_live_event = btn_tab5_run_live.click(
@@ -2772,9 +2784,18 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
             inputs=[fusion_seek_slider, fusion_state],
             outputs=[fusion_canvas, fusion_state]
         )
+        tab_item_fusion_gauge.select(
+            fn=lambda: ("gauge", "<div style='color:#38bdf8;'>💡 <b>Hướng dẫn gán mốc:</b> Nhấp chuột trực tiếp lên màn hình video để chấm lần lượt <b>3 điểm</b> (<b>1. Đáy</b> ➔ <b>2. Giữa H/2</b> ➔ <b>3. Đỉnh</b>), sau đó bấm <b>'Lưu'</b>!</div>"),
+            outputs=[fusion_calib_mode, fusion_setup_status]
+        )
+        tab_item_fusion_lane.select(
+            fn=lambda: ("lane", "<div style='color:#38bdf8;'>💡 <b>Mẹo:</b> Nhấp <b>4 góc</b> trên màn hình video để vẽ khung làn đường giám sát (khi đủ 4 góc, nhấp gần góc nào để kéo chỉnh lại góc đó)!</div>"),
+            outputs=[fusion_calib_mode, fusion_setup_status]
+        )
+
         fusion_canvas.select(
             fn=on_fusion_canvas_click,
-            inputs=[fusion_state, fusion_calib_target, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_strip_width_slider, fusion_roi_label],
+            inputs=[fusion_state, fusion_calib_mode, fusion_name_input, fusion_h_start_input, fusion_h_end_input, fusion_strip_width_slider, fusion_roi_label],
             outputs=[fusion_canvas, fusion_state, fusion_setup_status]
         )
         btn_fusion_save_gauge.click(
