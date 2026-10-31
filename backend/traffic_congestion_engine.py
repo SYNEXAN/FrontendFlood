@@ -79,7 +79,7 @@ class LatestFrameGrabber:
     mới nhất từ camera, loại bỏ hoàn toàn hiện tượng giật lag do ứ đọng buffer FFmpeg.
     """
 
-    def __init__(self, src: Any, max_width: int = 960):
+    def __init__(self, src: Any, max_width: int = 640):
         self.src = src
         self.max_width = max_width
         self.cap = cv2.VideoCapture(src)

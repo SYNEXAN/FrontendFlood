@@ -664,6 +664,10 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
             gr.update(choices=[], value=None)
         )
 
+    h_c, w_c = frame_bgr.shape[:2]
+    if w_c > 640:
+        frame_bgr = cv2.resize(frame_bgr, (640, int(h_c * 640.0 / w_c)), interpolation=cv2.INTER_AREA)
+
     strip_w = int(strip_width) if strip_width is not None else int(state_data.get("strip_width", 20) if state_data else 20)
     strip_w = max(4, min(100, strip_w))
     mode_str = "3_points"
@@ -1217,7 +1221,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     # Trường hợp 2: Camera Stream
     if source_type == "camera_stream":
         cam_src = state_data.get("cam_source", 0) if state_data else 0
-        grabber = LatestFrameGrabber(cam_src)
+        grabber = LatestFrameGrabber(cam_src, max_width=640)
         if not grabber.is_opened:
             grabber.release()
             base_frame = get_state_base_frame(state_data)
@@ -1447,6 +1451,10 @@ def on_traffic_camera_connect(cam_url_str, state_data):
             f"<div style='color:#ef4444;'>⚠️ Đã ngắt luồng cũ nhưng không thể lấy khung hình từ <b>{cam_title}</b>. Vui lòng kiểm tra kết nối mạng hoặc chọn Camera khác!</div>",
         )
 
+    h_c, w_c = frame_bgr.shape[:2]
+    if w_c > 640:
+        frame_bgr = cv2.resize(frame_bgr, (640, int(h_c * 640.0 / w_c)), interpolation=cv2.INTER_AREA)
+
     SERVER_FRAME_CACHE["traffic_base"] = frame_bgr
     new_state = {
         "source_type": "camera_stream",
@@ -1659,7 +1667,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
     # Trường hợp 2: Camera Stream
     if source_type == "camera_stream":
         cam_src = state_data.get("cam_source", 0) if state_data else 0
-        grabber = LatestFrameGrabber(cam_src)
+        grabber = LatestFrameGrabber(cam_src, max_width=640)
         if not grabber.is_opened:
             grabber.release()
             LIVE_STREAM_STATE["active"] = False
@@ -2085,10 +2093,17 @@ def on_fusion_camera_connect(cam_url, state_data):
     cap = cv2.VideoCapture(cam_url)
     ret, frame_bgr = cap.read()
     cap.release()
-    first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if ret and frame_bgr is not None else INIT_GAUGE_FRAME
-    set_state_base_frame(state_data, first_frame, "fusion_base")
+    if ret and frame_bgr is not None:
+        h_c, w_c = frame_bgr.shape[:2]
+        if w_c > 640:
+            frame_bgr = cv2.resize(frame_bgr, (640, int(h_c * 640.0 / w_c)), interpolation=cv2.INTER_AREA)
+    else:
+        frame_bgr = cv2.cvtColor(INIT_GAUGE_FRAME, cv2.COLOR_RGB2BGR) if INIT_GAUGE_FRAME is not None else None
+
+    set_state_base_frame(state_data, frame_bgr, "fusion_base")
+    first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if frame_bgr is not None else None
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình Camera", interactive=False)
-    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_name}!</b> Bấm <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích ngập & giao thông trực tiếp.</div>"
+    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_name}!</b> Bấm <b>BẮT ĐẦU DỰ ĐOÁN</b> để phân tích ngập & giao thông trực tiếp.</div>"
     return first_frame, slider_update, state_data, msg
 
 def on_fusion_seek_frame(slider_val, state_data):
@@ -2206,7 +2221,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
     # Trường hợp 2: Camera Stream
     if source_type == "camera_stream":
         cam_src = state_data.get("cam_source", 0) if state_data else 0
-        grabber = LatestFrameGrabber(cam_src)
+        grabber = LatestFrameGrabber(cam_src, max_width=640)
         if not grabber.is_opened:
             grabber.release()
             LIVE_STREAM_STATE["active"] = False
