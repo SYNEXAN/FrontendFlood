@@ -1096,6 +1096,22 @@ def on_tab5_flood_conf_changed(new_conf, state_data):
         return gr.skip(), gr.skip(), gr.skip(), f"<div style='color:red;'>⚠️ Lỗi cập nhật ngưỡng: {e}</div>"
 
 
+
+def encode_frame_to_base64_data_uri(frame_bgr, quality=70, max_w=640):
+    """Mã hóa frame BGR thành base64 data URI tối ưu dung lượng, hoàn toàn trong RAM (0 ghi đĩa, 0 request phụ)."""
+    if frame_bgr is None:
+        return None
+    h, w = frame_bgr.shape[:2]
+    if w > max_w:
+        target_h = int(h * (max_w / float(w)))
+        frame_bgr = cv2.resize(frame_bgr, (max_w, target_h), interpolation=cv2.INTER_AREA)
+    success, buffer = cv2.imencode('.jpg', frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not success:
+        return None
+    b64_str = base64.b64encode(buffer).decode('ascii')
+    return f"data:image/jpeg;base64,{b64_str}"
+
+
 @spaces.GPU(duration=120)
 def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     """Chạy suy luận trực tiếp trên Ảnh, Video hoặc Camera theo Thủy chuẩn Cột mốc."""
@@ -1122,8 +1138,9 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             flood_conf=cur_conf, mode="Cột mốc"
         )
         LIVE_STREAM_STATE["active"] = False
+        hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Đã phân tích ảnh hoàn tất!</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-        yield hud_rgb, df, alarm_html, status_info
+        yield hud_b64, df, alarm_html, status_info
         return
 
     # Trường hợp 2: Camera Stream
@@ -1201,10 +1218,12 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 2
+    step = 1
+    target_fps = 25.0
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1226,9 +1245,13 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                 flood_conf=cur_conf, mode="Cột mốc"
             )
 
+            hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-            yield hud_rgb, df, alarm_html, status_info
-            time.sleep(0.015)
+            yield hud_b64, df, alarm_html, status_info
+
+            elapsed = time.time() - t_frame_start
+            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
+            time.sleep(sleep_sec)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -1558,8 +1581,9 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             base_frame, vehicle_model, veh_conf=cur_conf, fps=1.0, is_single_image=True, location_name=loc_name
         )
         LIVE_STREAM_STATE["active"] = False
+        hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> | Số phương tiện: <b>{report.vehicle_count}</b> | Trạng thái: <b>{report.status_label}</b></div>"
-        yield hud_rgb, df, alarm_html, status_info
+        yield hud_b64, df, alarm_html, status_info
         return
 
     # Trường hợp 2: Camera Stream
@@ -1626,10 +1650,12 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 2
+    step = 1
+    target_fps = fps_vid or 25.0
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1651,9 +1677,13 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                 is_single_image=False, location_name=loc_name, sim_time_s=sim_t
             )
 
+            hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Xe: <b>{report.vehicle_count}</b> ({report.status_label}) | Tốc độ: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
-            yield hud_rgb, df, alarm_html, status_info
-            time.sleep(0.015)
+            yield hud_b64, df, alarm_html, status_info
+
+            elapsed = time.time() - t_frame_start
+            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
+            time.sleep(sleep_sec)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -1851,7 +1881,8 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         LIVE_STREAM_STATE["active"] = False
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-        yield final_hud_rgb, summary_df, alert_html, status_info
+        final_hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(final_hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
+        yield final_hud_b64, summary_df, alert_html, status_info
         return
 
     # Trường hợp 3: Nguồn Video MP4
@@ -1880,10 +1911,12 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
     cur_idx = start_idx
-    step = 2
+    step = 1
+    target_fps = fps_vid or 25.0
 
     try:
         while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+            t_frame_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1914,10 +1947,14 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
                 is_single_image=False, location_name=loc_name, sim_time_s=sim_t
             )
 
+            final_hud_b64 = encode_frame_to_base64_data_uri(cv2.cvtColor(final_hud_rgb, cv2.COLOR_RGB2BGR), quality=70, max_w=640)
             summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
             status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-            yield final_hud_rgb, summary_df, alert_html, status_info
-            time.sleep(0.015)
+            yield final_hud_b64, summary_df, alert_html, status_info
+
+            elapsed = time.time() - t_frame_start
+            sleep_sec = max(0.002, (1.0 / target_fps) - elapsed)
+            time.sleep(sleep_sec)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
