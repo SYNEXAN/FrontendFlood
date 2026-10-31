@@ -2127,8 +2127,7 @@ def on_fusion_seek_frame(slider_val, state_data):
 
 
 def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
-    """Chạy suy luận SONG SONG (Parallel) 2 Model (Model 1: Ngập Lụt & Model 2: Phương Tiện & Ùn Tắc)."""
-    from concurrent.futures import ThreadPoolExecutor
+    """Chạy suy luận TUẦN TỰ (Sequential Tối Ưu FPS) 2 Model (Model 1: Ngập Lụt & Model 2: Phương Tiện & Ùn Tắc)."""
     LIVE_STREAM_STATE["run_id"] += 1
     my_run_id = LIVE_STREAM_STATE["run_id"]
     LIVE_STREAM_STATE["active"] = True
@@ -2194,19 +2193,16 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
         cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_flood = executor.submit(
-                process_single_frame_hybrid,
-                base_frame, global_multi_gauge_manager, global_tab5_arbiter,
-                active_flood, None,
-                flood_conf=cur_flood_conf, mode="Cột mốc"
-            )
-            fut_traffic = executor.submit(
-                global_traffic_analyzer.analyze_frame,
-                base_frame, vehicle_model, veh_conf=cur_veh_conf, fps=1.0, is_single_image=True, location_name=loc_name
-            )
-            flood_hud_rgb, _, _, flood_report = fut_flood.result()
-            _, _, _, traffic_report = fut_traffic.result()
+        # 1. Phân tích Ngập Lụt (SCSG-Net)
+        flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
+            base_frame, global_multi_gauge_manager, global_tab5_arbiter,
+            active_flood, None,
+            flood_conf=cur_flood_conf, mode="Cột mốc"
+        )
+        # 2. Phân tích Phương Tiện (YOLO + ByteTrack)
+        _, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
+            base_frame, vehicle_model, veh_conf=cur_veh_conf, fps=1.0, is_single_image=True, location_name=loc_name
+        )
 
         flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
         final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=True)
@@ -2214,7 +2210,7 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
 
         LIVE_STREAM_STATE["active"] = False
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-        status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích song song hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+        status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
         yield final_hud_rgb, summary_df, alert_html, status_info
         return
 
@@ -2231,50 +2227,47 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         last_seq = -1
         t_prev_yield = time.time()
         try:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-                    ok, frame, frame_ts, seq = grabber.read_latest()
-                    if not ok or frame is None or seq == last_seq:
-                        time.sleep(0.008)
-                        continue
-                    last_seq = seq
-                    if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
-                        break
-                    try:
-                        cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-                        cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+            while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                ok, frame, frame_ts, seq = grabber.read_latest()
+                if not ok or frame is None or seq == last_seq:
+                    time.sleep(0.005)
+                    continue
+                last_seq = seq
+                if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
+                    break
+                try:
+                    cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                    cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-                        fut_flood = executor.submit(
-                            process_single_frame_hybrid,
-                            frame, global_multi_gauge_manager, global_tab5_arbiter,
-                            active_flood, None,
-                            flood_conf=cur_flood_conf, mode="Cột mốc"
-                        )
-                        fut_traffic = executor.submit(
-                            global_traffic_analyzer.analyze_frame,
-                            frame, vehicle_model, veh_conf=cur_veh_conf, fps=grabber.fps,
-                            is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
-                        )
-                        flood_hud_rgb, _, _, flood_report = fut_flood.result()
-                        _, _, _, traffic_report = fut_traffic.result()
+                    # 1. Phân tích Ngập Lụt (SCSG-Net)
+                    flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
+                        frame, global_multi_gauge_manager, global_tab5_arbiter,
+                        active_flood, None,
+                        flood_conf=cur_flood_conf, mode="Cột mốc"
+                    )
+                    # 2. Phân tích Phương Tiện (YOLO + ByteTrack)
+                    _, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
+                        frame, vehicle_model, veh_conf=cur_veh_conf, fps=grabber.fps,
+                        is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
+                    )
 
-                        flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
-                        final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
-                        final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
+                    flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                    final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
+                    final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
 
-                        summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-                        status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live Song Song (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+                    summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                    status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Trực Tiếp (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
 
-                        now = time.time()
-                        elapsed = now - t_prev_yield
-                        if elapsed < 0.033:
-                            time.sleep(0.033 - elapsed)
-                        t_prev_yield = time.time()
+                    now = time.time()
+                    elapsed = now - t_prev_yield
+                    if elapsed < 0.030:
+                        time.sleep(0.030 - elapsed)
+                    t_prev_yield = time.time()
 
-                        yield final_hud_rgb, summary_df, alert_html, status_info
-                    except Exception as frame_err:
-                        print(f"⚠️ Lỗi Camera Fusion: {frame_err}")
-                        continue
+                    yield final_hud_rgb, summary_df, alert_html, status_info
+                except Exception as frame_err:
+                    print(f"⚠️ Lỗi Camera Fusion: {frame_err}")
+                    continue
         except GeneratorExit:
             LIVE_STREAM_STATE["active"] = False
             return
@@ -2311,48 +2304,46 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
     step = 2
 
     try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-                ret, frame = cap.read()
-                if not ret or frame is None:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    cur_idx = 0
-                    continue
+        while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                cur_idx = 0
+                continue
 
-                cur_idx += 1
-                if (cur_idx % step) != 0:
-                    continue
+            cur_idx += 1
+            if (cur_idx % step) != 0:
+                continue
 
-                cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-                cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+            cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+            cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
 
-                h_orig, w_orig = frame.shape[:2]
-                if w_orig > 640:
-                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+            h_orig, w_orig = frame.shape[:2]
+            if w_orig > 640:
+                frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
 
-                sim_t = float(cur_idx) / float(fps_vid)
-                fut_flood = executor.submit(
-                    process_single_frame_hybrid,
-                    frame, global_multi_gauge_manager, global_tab5_arbiter,
-                    active_flood, None,
-                    flood_conf=cur_flood_conf, mode="Cột mốc"
-                )
-                fut_traffic = executor.submit(
-                    global_traffic_analyzer.analyze_frame,
-                    frame, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
-                    is_single_image=False, location_name=loc_name, sim_time_s=sim_t
-                )
-                flood_hud_rgb, _, _, flood_report = fut_flood.result()
-                _, _, _, traffic_report = fut_traffic.result()
+            sim_t = float(cur_idx) / float(fps_vid)
 
-                flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
-                final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
-                final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
+            # 1. Phân tích Ngập Lụt (SCSG-Net)
+            flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
+                frame, global_multi_gauge_manager, global_tab5_arbiter,
+                active_flood, None,
+                flood_conf=cur_flood_conf, mode="Cột mốc"
+            )
+            # 2. Phân tích Phương Tiện (YOLO + ByteTrack)
+            _, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
+                frame, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
+                is_single_image=False, location_name=loc_name, sim_time_s=sim_t
+            )
 
-                summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-                status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> (Song song 2 Model) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-                yield final_hud_rgb, summary_df, alert_html, status_info
-                time.sleep(0.035)
+            flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+            final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
+            final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
+
+            summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+            status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> (Tích Hợp 2 Model) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+            yield final_hud_rgb, summary_df, alert_html, status_info
+            time.sleep(0.025)
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
         return
@@ -2662,7 +2653,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                     fusion_stat_table = gr.DataFrame(
                         headers=["Chỉ Số Giám Sát", "Giá Trị"],
                         datatype=["str", "str"],
-                        label="📋 Bảng Chỉ Số Tích Hợp Thủy Văn & Giao Thông (Song Song 2 Model)"
+                        label="📋 Bảng Chỉ Số Tích Hợp Thủy Văn & Giao Thông (2 Model Tối Ưu FPS)"
                     )
 
                     with gr.Accordion("⚙️ Cài Đặt Ngưỡng Tự Tin 2 Model", open=False):
@@ -2677,7 +2668,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
                 # CỘT BÊN PHẢI: MÀN HÌNH GIÁM SÁT TÍCH HỢP 2 TRONG 1 & BỘ HIỆU CHUẨN
                 with gr.Column(scale=3):
-                    gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện Song Song)")
+                    gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện)")
                     fusion_canvas = gr.Image(
                         value=INIT_GAUGE_FRAME,
                         type="numpy",
