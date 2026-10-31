@@ -3035,17 +3035,50 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
 
 
 # ==============================================================================
-# FASTAPI REALTIME STREAMING ENGINE (PRODUCER - CONSUMER ARCHITECTURE)
+# FASTAPI REALTIME STREAMING & IDLE AUTO-SHUTDOWN WATCHDOG (30 PHÚT TỰ TẮT)
 # ==============================================================================
 import threading
 
+LAST_ACTIVITY_TIME = time.time()
+IDLE_TIMEOUT_SECONDS = int(os.environ.get("IDLE_TIMEOUT_SECONDS", 1800))  # 30 phút mặc định
+
 @demo.app.middleware("http")
-async def allow_iframe_embedding_middleware(request: Request, call_next):
+async def app_lifecycle_middleware(request: Request, call_next):
+    global LAST_ACTIVITY_TIME
+    LAST_ACTIVITY_TIME = time.time()
     response = await call_next(request)
     # Xoá bỏ mọi rào cản iframe từ trình duyệt
     response.headers.pop("X-Frame-Options", None)
     response.headers["Content-Security-Policy"] = "frame-ancestors *"
     return response
+
+@demo.app.get("/heartbeat")
+async def heartbeat_check():
+    global LAST_ACTIVITY_TIME
+    LAST_ACTIVITY_TIME = time.time()
+    return JSONResponse({
+        "status": "alive",
+        "timestamp": LAST_ACTIVITY_TIME,
+        "idle_timeout_seconds": IDLE_TIMEOUT_SECONDS
+    })
+
+def start_idle_watchdog():
+    def watchdog_loop():
+        print(f"[IDLE WATCHDOG] ⏱️ Bộ giám sát tự động tắt được kích hoạt (Timeout: {IDLE_TIMEOUT_SECONDS // 60} phút).")
+        while True:
+            time.sleep(30)
+            idle = time.time() - LAST_ACTIVITY_TIME
+            if idle >= IDLE_TIMEOUT_SECONDS:
+                print(f"[IDLE WATCHDOG] 🛑 Không có hoạt động trong {int(idle // 60)} phút!")
+                print(f"[IDLE WATCHDOG] 💤 Tự động dừng GPU notebook để bảo toàn quota Tesla T4...")
+                try:
+                    os.system("pkill -f cloudflared")
+                except Exception:
+                    pass
+                os._exit(0)
+
+    t = threading.Thread(target=watchdog_loop, daemon=True)
+    t.start()
 
 STREAMING_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
@@ -3057,5 +3090,6 @@ STREAMING_HEADERS = {
 
 
 if __name__ == "__main__":
+    start_idle_watchdog()
     demo.queue(default_concurrency_limit=10)
     demo.launch(server_name="0.0.0.0", server_port=7860, share=True, show_error=False)

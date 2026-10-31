@@ -862,10 +862,24 @@
 
         const username = data.username || "Kaggle";
         const ver = data.versionNumber || "mới";
-        updateStep(1, "done", `1. Đã khởi tạo notebook trên tài khoản ${username} (Phiên bản #${ver})!`);
-        updateStep(2, "running", "2. Đang phân bổ GPU Tesla T4 và khởi động dịch vụ...");
-        updateStatusUI("running", `GPU ${username} đang nạp...`);
-        showToast(`Đã kích hoạt GPU cho tài khoản ${username}!`, "success");
+
+        if (data.alreadyRunning) {
+          updateStep(1, "done", `1. GPU Tesla T4 đang chạy sẵn trên tài khoản ${username}!`);
+          updateStep(2, "done", "2. Đã phân bổ GPU Tesla T4 thành công!");
+          updateStep(3, "running", "3. Đang đồng bộ mô hình AI & kết nối Cloudflare...");
+          updateStatusUI("running", `Đang kết nối GPU ${username}...`);
+          showToast(`Phát hiện GPU đang chạy sẵn trên tài khoản ${username}!`, "info");
+        } else if (data.alreadyQueued) {
+          updateStep(1, "done", `1. Notebook đang xếp hàng trên tài khoản ${username}...`);
+          updateStep(2, "running", "2. Đang chờ phân bổ GPU Tesla T4...");
+          updateStatusUI("running", `Đang chờ GPU ${username}...`);
+          showToast(`Notebook đang xếp hàng tài nguyên GPU!`, "info");
+        } else {
+          updateStep(1, "done", `1. Đã khởi tạo notebook trên tài khoản ${username} (Phiên bản #${ver})!`);
+          updateStep(2, "running", "2. Đang phân bổ GPU Tesla T4 và khởi động dịch vụ...");
+          updateStatusUI("running", `GPU ${username} đang nạp...`);
+          showToast(`Đã kích hoạt GPU cho tài khoản ${username}!`, "success");
+        }
 
         // Bắt đầu theo dõi backend cho đến khi online
         startMonitorExecution();
@@ -1045,8 +1059,38 @@
       }, 1000);
     });
 
+    // ========================================================================
+    // HEARTBEAT KEEPALIVE ENGINE (GIỮ PHIÊN KHI ĐANG MỞ TAB WEB)
+    // ========================================================================
+    let heartbeatTimer = null;
+    function startHeartbeat() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(async () => {
+        if (!isServerOnline) return;
+        const config = getConfig();
+        try {
+          await fetch(`${config.backendUrl}/heartbeat`, { cache: "no-store", mode: "no-cors" });
+        } catch (e) {}
+      }, 60000); // 60 giây một lần
+    }
+    startHeartbeat();
+
+    // ========================================================================
+    // TỰ ĐỘNG ĐÁNH THỨC THEO YÊU CẦU KHI VÀO TRANG WEB (AUTO ON-DEMAND WAKEUP)
+    // ========================================================================
+    async function initAutoLifecycle() {
+      const isOnline = await checkBackendOnline();
+      if (!isOnline) {
+        const config = getConfig();
+        if (config.auth) {
+          console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động kiểm tra và đánh thức GPU Tesla T4...");
+          startKaggleNotebookExecution(config.auth);
+        }
+      }
+    }
+    initAutoLifecycle();
+
     // Định kỳ quét trạng thái backend mỗi 5 giây
-    checkBackendOnline();
     setInterval(checkBackendOnline, 5000);
   </script>
 
