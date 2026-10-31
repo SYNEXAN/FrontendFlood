@@ -4,7 +4,7 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://gauge-papua-gas-freight.trycloudflare.com";
+const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://visible-lots-union-nova.trycloudflare.com";
 let activeBackendUrl = DEFAULT_BACKEND_URL;
 
 app.use(cors());
