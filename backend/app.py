@@ -192,7 +192,7 @@ from traffic_congestion_engine import (
 )
 
 # Cấu hình OpenCV FFMPEG ưu tiên giao thức TCP ổn định cho luồng RTSP
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;6000000"
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;500000|reorder_queue_size;0|stimeout;6000000"
 
 CANTHO_CAMERAS = [
     {
@@ -209,7 +209,7 @@ CANTHO_CAMERAS = [
     {
         "id": "cam-vo-van-kiet",
         "name": "Camera Võ Văn Kiệt",
-        "url": "rtsp://admin:Mekong2026@mekongpathfinder1pnh.smartddns.tv:554/cam/realmonitor?channel=1&subtype=0",
+        "url": "rtsp://admin:Mekong2026@mekongpathfinder1pnh.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
         "lat": 10.0466199,
         "lon": 105.7554705,
         "status": "online",
@@ -220,7 +220,7 @@ CANTHO_CAMERAS = [
     {
         "id": "cam-nga-tu-3/2-thn",
         "name": "Camera Ngã Tư 3/2 - Trần Hoàng Na",
-        "url": "rtsp://admin:Mekong2026@mekongpathfinder02thn.smartddns.tv:41003/cam/realmonitor?channel=1&subtype=0",
+        "url": "rtsp://admin:Mekong2026@mekongpathfinder02thn.smartddns.tv:41003/cam/realmonitor?channel=1&subtype=1",
         "lat": 10.0161664,
         "lon": 105.7598591,
         "status": "online",
@@ -231,7 +231,7 @@ CANTHO_CAMERAS = [
     {
         "id": "cam-tran-hoang-na",
         "name": "Camera Trần Hoàng Na",
-        "url": "rtsp://admin:Mekong2026@mekongpathfinder01thn.smartddns.tv:554/cam/realmonitor?channel=1&subtype=0",
+        "url": "rtsp://admin:Mekong2026@mekongpathfinder01thn.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
         "lat": 10.02049130,
         "lon": 105.75523570,
         "status": "online",
@@ -620,6 +620,8 @@ def resolve_camera_stream_url(raw_url: str):
                     return info["url"]
         except Exception as e:
             print(f"⚠️ Không thể trích xuất luồng trực tiếp từ YouTube ({u}): {e}")
+    if isinstance(u, str) and "subtype=0" in u:
+        u = u.replace("subtype=0", "subtype=1")
     return u
 
 
@@ -1228,6 +1230,7 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
             return
 
         last_seq = -1
+        t_prev_yield = time.time()
         try:
             while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 ok, frame, _, seq = grabber.read_latest()
@@ -1245,6 +1248,11 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
                         flood_conf=cur_conf, mode="Cột mốc"
                     )
                     status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
+                    now = time.time()
+                    elapsed = now - t_prev_yield
+                    if elapsed < 0.033:
+                        time.sleep(0.033 - elapsed)
+                    t_prev_yield = time.time()
                     yield hud_rgb, df, alarm_html, status_info
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi Camera: {frame_err}")
@@ -1653,6 +1661,7 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
             return
 
         last_seq = -1
+        t_prev_yield = time.time()
         try:
             while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
                 ok, frame, frame_ts, seq = grabber.read_latest()
@@ -1669,6 +1678,11 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
                         is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
                     )
                     status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Phương tiện: <b>{report.vehicle_count}</b> ({report.status_label})</div>"
+                    now = time.time()
+                    elapsed = now - t_prev_yield
+                    if elapsed < 0.033:
+                        time.sleep(0.033 - elapsed)
+                    t_prev_yield = time.time()
                     yield hud_rgb, df, alarm_html, status_info
                 except Exception as frame_err:
                     print(f"⚠️ Lỗi Camera Traffic: {frame_err}")
@@ -1932,6 +1946,63 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
         summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
         status_info = f"<div style='color:#22c55e;'>✅ <b>Phân tích hoàn tất!</b> Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
         yield final_hud_rgb, summary_df, alert_html, status_info
+        return
+
+    # Trường hợp 2: Camera Stream
+    if source_type == "camera_stream":
+        cam_src = state_data.get("cam_source", 0) if state_data else 0
+        grabber = LatestFrameGrabber(cam_src)
+        if not grabber.is_opened:
+            grabber.release()
+            LIVE_STREAM_STATE["active"] = False
+            yield None, pd.DataFrame(), "<div style='color:red;'>⚠️ Không thể mở luồng Camera!</div>", "<div style='color:red;'>Lỗi kết nối Camera</div>"
+            return
+
+        last_seq = -1
+        t_prev_yield = time.time()
+        try:
+            while grabber.is_opened and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
+                ok, frame, frame_ts, seq = grabber.read_latest()
+                if not ok or frame is None or seq == last_seq:
+                    time.sleep(0.008)
+                    continue
+                last_seq = seq
+                if not LIVE_STREAM_STATE["active"] or LIVE_STREAM_STATE["run_id"] != my_run_id:
+                    break
+                try:
+                    cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                    cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+
+                    flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
+                        frame, global_multi_gauge_manager, global_tab5_arbiter,
+                        active_flood, None,
+                        flood_conf=cur_flood_conf, mode="Cột mốc"
+                    )
+                    flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+
+                    final_hud_rgb, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
+                        flood_hud_bgr, vehicle_model, veh_conf=cur_veh_conf, fps=grabber.fps,
+                        is_single_image=False, location_name=loc_name, sim_time_s=frame_ts
+                    )
+
+                    summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                    status_info = f"<div style='color:#38bdf8;'>📷 <b>Camera Live (Frame {seq})</b> | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+
+                    now = time.time()
+                    elapsed = now - t_prev_yield
+                    if elapsed < 0.033:
+                        time.sleep(0.033 - elapsed)
+                    t_prev_yield = time.time()
+
+                    yield final_hud_rgb, summary_df, alert_html, status_info
+                except Exception as frame_err:
+                    print(f"⚠️ Lỗi Camera Fusion: {frame_err}")
+                    continue
+        except GeneratorExit:
+            LIVE_STREAM_STATE["active"] = False
+            return
+        finally:
+            grabber.release()
         return
 
     # Trường hợp 3: Nguồn Video MP4

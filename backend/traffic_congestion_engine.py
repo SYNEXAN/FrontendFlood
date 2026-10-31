@@ -79,7 +79,9 @@ class LatestFrameGrabber:
     mới nhất từ camera, loại bỏ hoàn toàn hiện tượng giật lag do ứ đọng buffer FFmpeg.
     """
 
-    def __init__(self, src: Any):
+    def __init__(self, src: Any, max_width: int = 960):
+        self.src = src
+        self.max_width = max_width
         self.cap = cv2.VideoCapture(src)
         try:
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -99,6 +101,9 @@ class LatestFrameGrabber:
         if self.is_opened:
             ret, frm = self.cap.read()
             if ret and frm is not None:
+                if self.max_width and frm.shape[1] > self.max_width:
+                    h, w = frm.shape[:2]
+                    frm = cv2.resize(frm, (self.max_width, int(h * self.max_width / w)), interpolation=cv2.INTER_AREA)
                 self.latest_frame = frm
                 self.latest_ts = time.time()
                 self.frame_seq = 1
@@ -110,8 +115,11 @@ class LatestFrameGrabber:
         while self.running and self.cap.isOpened():
             ret, frm = self.cap.read()
             if not ret or frm is None:
-                time.sleep(0.01)
+                time.sleep(0.005)
                 continue
+            if self.max_width and frm.shape[1] > self.max_width:
+                h, w = frm.shape[:2]
+                frm = cv2.resize(frm, (self.max_width, int(h * self.max_width / w)), interpolation=cv2.INTER_AREA)
             now = time.time()
             with self.lock:
                 self.latest_frame = frm
