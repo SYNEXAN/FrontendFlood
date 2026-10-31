@@ -2030,7 +2030,11 @@ def on_fusion_image_loaded(img_rgb, state_data):
     if state_data is None:
         state_data = DEFAULT_FUSION_STATE.copy()
     state_data["source_type"] = "image"
-    set_state_base_frame(state_data, img_rgb.copy(), "fusion_base")
+    if img_rgb is not None:
+        h_i, w_i = img_rgb.shape[:2]
+        if w_i > 640:
+            img_rgb = cv2.resize(img_rgb, (640, int(h_i * 640.0 / w_i)), interpolation=cv2.INTER_AREA)
+        set_state_base_frame(state_data, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR), "fusion_base")
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
     msg = "<div style='color:#22c55e;'>✅ <b>Đã nạp ảnh thành công!</b> Nhấn <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích tuần tự cả Ngập Lụt & Phương Tiện.</div>"
     return img_rgb, slider_update, state_data, msg
@@ -2358,10 +2362,28 @@ custom_css = """
 #tab5_calib_canvas, #traffic_canvas, #fusion_canvas {
     margin-top: 0px !important;
     padding-top: 0px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+#tab5_calib_canvas .image-container, #traffic_canvas .image-container, #fusion_canvas .image-container {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100% !important;
+    background: transparent !important;
 }
 #tab5_calib_canvas img, #traffic_canvas img, #fusion_canvas img {
     cursor: crosshair !important;
     pointer-events: auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 480px !important;
+    display: block !important;
+    margin: 0 auto !important;
+    object-fit: contain !important;
+    border-radius: 8px !important;
 }
 #tab5_setup_status:empty, #traffic_setup_status:empty {
     display: none !important;
