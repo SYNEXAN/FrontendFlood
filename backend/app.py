@@ -2180,14 +2180,19 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                 # CỘT BÊN PHẢI: MÀN HÌNH VIDEO GIÁM SÁT GIAO THÔNG & VÙNG LÀN ĐƯỜNG 4 GÓC
                 with gr.Column(scale=3):
                     gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Giao Thông & Chọn Làn Đường (Chấm 4 Góc)")
-                    traffic_canvas = gr.Image(
-                        value=INIT_GAUGE_FRAME,
-                        type="numpy",
-                        format="jpeg",
-                        show_label=False,
-                        interactive=True,
-                        elem_id="traffic_canvas"
+                    traffic_live_display = gr.HTML(
+                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">🚗</span>Sẵn sàng phân tích giao thông. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
+                        elem_id="traffic_live_display"
                     )
+                    with gr.Accordion("📍 Khung Thiết Lập Làn Đường ROI (Chấm 4 Góc)", open=True):
+                        traffic_canvas = gr.Image(
+                            value=INIT_GAUGE_FRAME,
+                            type="numpy",
+                            format="jpeg",
+                            show_label=False,
+                            interactive=True,
+                            elem_id="traffic_canvas"
+                        )
                     traffic_setup_status = gr.HTML(
                         "<div style='color:#38bdf8;'>💡 <b>Mẹo:</b> Nhấp <b>4 góc</b> trên màn hình để vẽ khung làn đường (chỉ tính xe đi vào khung). Khi đã đủ 4 góc, nhấp gần góc nào để kéo chỉnh lại góc đó!</div>",
                         elem_id="traffic_setup_status"
@@ -2266,15 +2271,20 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                 # CỘT BÊN PHẢI: MÀN HÌNH GIÁM SÁT TÍCH HỢP 2 TRONG 1
                 with gr.Column(scale=3):
                     gr.Markdown("#### 🖼️ 2. Màn Hình Giám Sát Tích Hợp (Mực Nước + Phương Tiện Realtime)")
-                    fusion_canvas = gr.Image(
-                        value=INIT_GAUGE_FRAME,
-                        type="numpy",
-                        format="jpeg",
-                        show_label=False,
-                        interactive=False,
-                        visible=True,
-                        elem_id="fusion_canvas"
+                    fusion_live_display = gr.HTML(
+                        value='''<div style="background:#090d16; border:1px solid #1e293b; border-radius:12px; height:420px; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#64748b; font-size:15px;"><span style="font-size:36px; margin-bottom:10px;">⚡</span>Sẵn sàng phân tích tích hợp. Nhấn <b>'🚀 BẮT ĐẦU DỰ ĐOÁN AI'</b> để phát luồng trực tiếp!</div>''',
+                        elem_id="fusion_live_display"
                     )
+                    with gr.Accordion("📍 Khung Hình Preview & Điều Khiển", open=False):
+                        fusion_canvas = gr.Image(
+                            value=INIT_GAUGE_FRAME,
+                            type="numpy",
+                            format="jpeg",
+                            show_label=False,
+                            interactive=False,
+                            visible=True,
+                            elem_id="fusion_canvas"
+                        )
                     fusion_setup_status = gr.HTML(
                         "<div style='color:#38bdf8;'>💡 <b>Chế độ tích hợp:</b> Hệ thống chạy tuần tự Model 1 (Phân đoạn ngập & Đo độ sâu thủy chuẩn) sau đó đưa frame vào Model 2 (YOLOv8 + ByteTrack) để vẽ đồng thời lớp ngập và phương tiện.</div>",
                         elem_id="fusion_setup_status"
@@ -2298,7 +2308,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         traffic_live_event = btn_traffic_run_live.click(
             fn=run_traffic_congestion_live,
             inputs=[traffic_state, traffic_veh_conf, traffic_seek_slider],
-            outputs=[traffic_canvas, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
+            outputs=[traffic_live_display, traffic_stat_table, traffic_alarm_html, traffic_setup_status]
         )
 
         
@@ -2307,7 +2317,7 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
         fusion_live_event = btn_fusion_run_live.click(
             fn=run_fusion_live,
             inputs=[fusion_state, fusion_flood_conf, fusion_veh_conf, fusion_seek_slider],
-            outputs=[fusion_canvas, fusion_stat_table, fusion_alarm_html, fusion_setup_status]
+            outputs=[fusion_live_display, fusion_stat_table, fusion_alarm_html, fusion_setup_status]
         )
 
         all_live_events = [tab5_live_event, traffic_live_event, fusion_live_event]
