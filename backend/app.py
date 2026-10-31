@@ -500,6 +500,11 @@ def on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, str
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
     global_tab5_arbiter.prev_flood_mask = None
+    if state_data:
+        state_data["p_bot"] = None
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["step"] = 0
     if not video_file:
         return None, gr.Slider(maximum=1, value=0), state_data, "<div style='color:orange;'>Chưa có video.</div>", gr.update(choices=[], value=None)
 
@@ -636,6 +641,11 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
     stop_live_stream()
     global_multi_gauge_manager.reset_all()
     global_tab5_arbiter.prev_flood_mask = None
+    if state_data:
+        state_data["p_bot"] = None
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["step"] = 0
     raw_src = str(cam_url_str).strip() if cam_url_str is not None else CANTHO_CAMERAS[0]["url"]
     cam_src = resolve_camera_stream_url(raw_src)
 
@@ -710,8 +720,10 @@ def on_tab5_camera_connect(cam_url_str, state_data, name, h_start_cm, h_end_cm, 
 
 
 def on_tab5_switch_to_image_tab(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
-    """Khi người dùng chuyển sang tab Ảnh: tự động ngắt ngay video / dự đoán AI đang chạy."""
+    """Khi người dùng chuyển sang tab Ảnh: tự động ngắt video, xóa mốc cũ và làm sạch màn hình."""
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
     if img_rgb is not None:
         return on_tab5_image_loaded(img_rgb, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
@@ -723,13 +735,15 @@ def on_tab5_switch_to_image_tab(img_rgb, state_data, name, h_start_cm, h_end_cm,
         state_data["step"] = 0
 
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=False)
-    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh</b> (đã tự động ngắt luồng đang chạy). Hãy tải ảnh lên để bắt đầu!</div>"
-    return gr.skip(), slider_update, state_data, msg, gr.skip()
+    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh</b> (đã tự động làm mới toàn bộ mốc). Hãy tải ảnh lên để bắt đầu!</div>"
+    return None, slider_update, state_data, msg, gr.update(choices=[], value=None)
 
 
 def on_tab5_switch_to_video_tab(video_file, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
-    """Khi người dùng chuyển sang tab Video: tự động ngắt ngay dự đoán AI / luồng đang chạy và khôi phục khung hình video tĩnh."""
+    """Khi người dùng chuyển sang tab Video: tự động ngắt luồng, xóa mốc cũ và khôi phục khung hình video tĩnh sạch."""
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
     if video_file:
         return on_tab5_video_loaded(video_file, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
@@ -739,24 +753,22 @@ def on_tab5_switch_to_video_tab(video_file, state_data, name, h_start_cm, h_end_
 
     if state_data:
         state_data["source_type"] = "video"
-    slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=True)
-    msg = "<div style='color:#38bdf8;'>🎬 <b>Đã chuyển sang tab Video</b> (đã tự động ngắt luồng đang chạy). Hãy tải tệp video lên!</div>"
-    return gr.skip(), slider_update, state_data, msg, gr.skip()
-
-
-def on_tab5_switch_to_camera_tab(cam_url_str, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
-    """Khi người dùng chuyển sang tab Camera: tự động ngắt ngay video / dự đoán AI đang chạy."""
-    stop_live_stream()
-    if state_data:
-        state_data["source_type"] = "camera_stream"
         state_data["p_bot"] = None
         state_data["p_mid"] = None
         state_data["p_top"] = None
         state_data["step"] = 0
+    slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=True)
+    msg = "<div style='color:#38bdf8;'>🎬 <b>Đã chuyển sang tab Video</b> (đã tự động làm mới toàn bộ mốc). Hãy tải tệp video lên!</div>"
+    return None, slider_update, state_data, msg, gr.update(choices=[], value=None)
 
-    slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video (chọn mốc)", interactive=False)
-    msg = "<div style='color:#38bdf8;'>📷 <b>Đã chuyển sang tab Camera</b> (đã tự động ngắt video / dự đoán AI đang chạy). Chọn Camera và bấm <b>Kết nối</b>!</div>"
-    return gr.skip(), slider_update, state_data, msg, gr.skip()
+
+def on_tab5_switch_to_camera_tab(cam_url_str, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
+    """Khi người dùng chuyển sang tab Camera: ngắt stream, xóa toàn bộ mốc cũ và kết nối frame camera mới ngay lập tức."""
+    stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    target_url = cam_url_str if (cam_url_str and str(cam_url_str).strip()) else CANTHO_CAMERAS[0]["url"]
+    return on_tab5_camera_connect(target_url, state_data, name, h_start_cm, h_end_cm, strip_width=strip_width)
 
 
 def on_tab5_seek_frame(frame_idx, state_data, name, h_start_cm, h_end_cm, strip_width=20, **kwargs):
@@ -1355,6 +1367,9 @@ def on_traffic_video_loaded(video_file, state_data):
     stop_live_stream()
     global_traffic_analyzer.reset()
     global_traffic_analyzer.clear_roi()
+    if state_data:
+        state_data["draft_roi_pts"] = []
+        state_data["roi_pts"] = None
     if not video_file:
         return None, gr.Slider(maximum=1, value=0), state_data, "<div style='color:orange;'>Chưa có video.</div>"
 
@@ -1424,6 +1439,9 @@ def on_traffic_camera_connect(cam_url_str, state_data):
     stop_live_stream()
     global_traffic_analyzer.reset()
     global_traffic_analyzer.clear_roi()
+    if state_data:
+        state_data["draft_roi_pts"] = []
+        state_data["roi_pts"] = None
     raw_src = str(cam_url_str).strip() if cam_url_str is not None else CANTHO_CAMERAS[0]["url"]
     cam_src = resolve_camera_stream_url(raw_src)
 
@@ -1473,22 +1491,26 @@ def on_traffic_camera_connect(cam_url_str, state_data):
 
 
 def on_traffic_switch_to_image_tab(img_rgb, state_data):
-    """Chuyển sang tab Ảnh trong Tab Đo Độ Ùn Tắc -> tự động ngắt ngay video / dự đoán AI đang chạy."""
+    """Chuyển sang tab Ảnh trong Tab Đo Độ Ùn Tắc -> ngắt video, xóa sạch khung làn đường cũ."""
     stop_live_stream()
     global_traffic_analyzer.reset()
+    global_traffic_analyzer.clear_roi()
     if img_rgb is not None:
         return on_traffic_image_loaded(img_rgb, state_data)
     if state_data:
         state_data["source_type"] = "image"
+        state_data["draft_roi_pts"] = []
+        state_data["roi_pts"] = None
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
-    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh</b> (đã tự động ngắt luồng đang chạy). Hãy tải ảnh lên để bắt đầu!</div>"
-    return gr.skip(), slider_update, state_data, msg
+    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh</b> (đã tự động làm mới khung làn đường). Hãy tải ảnh lên để bắt đầu!</div>"
+    return None, slider_update, state_data, msg
 
 
 def on_traffic_switch_to_video_tab(video_file, state_data):
-    """Chuyển sang tab Video trong Tab Đo Độ Ùn Tắc -> tự động ngắt ngay dự đoán AI đang chạy."""
+    """Chuyển sang tab Video trong Tab Đo Độ Ùn Tắc -> ngắt luồng, xóa sạch khung làn đường cũ."""
     stop_live_stream()
     global_traffic_analyzer.reset()
+    global_traffic_analyzer.clear_roi()
     if video_file:
         return on_traffic_video_loaded(video_file, state_data)
     video_path = (state_data.get("video_path") if state_data else None) or DEFAULT_GAUGE_VIDEO
@@ -1496,20 +1518,20 @@ def on_traffic_switch_to_video_tab(video_file, state_data):
         return on_traffic_video_loaded(video_path, state_data)
     if state_data:
         state_data["source_type"] = "video"
+        state_data["draft_roi_pts"] = []
+        state_data["roi_pts"] = None
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=True)
-    msg = "<div style='color:#38bdf8;'>🎬 <b>Đã chuyển sang tab Video</b> (đã tự động ngắt luồng đang chạy). Hãy tải tệp video lên!</div>"
-    return gr.skip(), slider_update, state_data, msg
+    msg = "<div style='color:#38bdf8;'>🎬 <b>Đã chuyển sang tab Video</b> (đã tự động làm mới khung làn đường). Hãy tải tệp video lên!</div>"
+    return None, slider_update, state_data, msg
 
 
 def on_traffic_switch_to_camera_tab(cam_url_str, state_data):
-    """Chuyển sang tab Camera trong Tab Đo Độ Ùn Tắc -> tự động ngắt ngay video / dự đoán AI đang chạy."""
+    """Chuyển sang tab Camera trong Tab Đo Độ Ùn Tắc -> ngắt luồng, xóa khung làn đường cũ và kết nối frame camera mới ngay lập tức."""
     stop_live_stream()
     global_traffic_analyzer.reset()
-    if state_data:
-        state_data["source_type"] = "camera_stream"
-    slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
-    msg = "<div style='color:#38bdf8;'>📷 <b>Đã chuyển sang tab Camera</b> (đã tự động ngắt video / dự đoán AI đang chạy). Chọn Camera và bấm <b>Kết nối</b>!</div>"
-    return gr.skip(), slider_update, state_data, msg
+    global_traffic_analyzer.clear_roi()
+    target_url = cam_url_str if (cam_url_str and str(cam_url_str).strip()) else CANTHO_CAMERAS[0]["url"]
+    return on_traffic_camera_connect(target_url, state_data)
 
 
 def on_traffic_seek_frame(frame_idx, state_data):
@@ -2004,51 +2026,75 @@ def on_fusion_width_change(new_w, state_data, name, h_start_cm, h_end_cm):
 
 def on_fusion_switch_to_image_tab(img_rgb, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
     if img_rgb is not None:
         return on_fusion_image_loaded(img_rgb, state_data)
     if state_data:
         state_data["source_type"] = "image"
+        state_data["p_bot"] = None
+        state_data["p_mid"] = None
+        state_data["p_top"] = None
+        state_data["gauge_step"] = 0
+        state_data["draft_roi_pts"] = []
+        state_data["roi_pts"] = None
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
-    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh Tích Hợp</b>. Tải ảnh lên và nhấn bắt đầu để chạy tuần tự 2 Model!</div>"
-    return gr.skip(), slider_update, state_data, msg
+    msg = "<div style='color:#38bdf8;'>🖼️ <b>Đã chuyển sang tab Ảnh Tích Hợp</b> (đã tự động làm mới mốc và làn đường). Tải ảnh lên và nhấn bắt đầu để chạy tuần tự 2 Model!</div>"
+    return None, slider_update, state_data, msg
 
 def on_fusion_switch_to_video_tab(video_file, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
     if video_file is not None:
         return on_fusion_video_loaded(video_file, state_data)
-    if state_data:
-        state_data["source_type"] = "video"
-        state_data["video_path"] = DEFAULT_GAUGE_VIDEO
-    slider_update = gr.Slider(minimum=0, maximum=100, value=0, step=1, label="Khung hình video", interactive=True)
-    msg = "<div style='color:#38bdf8;'>🎬 <b>Đã chuyển sang tab Video Tích Hợp</b>. Sẵn sàng video mặc định hoặc tải video mới!</div>"
-    return INIT_GAUGE_FRAME, slider_update, state_data, msg
+    video_path = (state_data.get("video_path") if state_data else None) or DEFAULT_GAUGE_VIDEO
+    return on_fusion_video_loaded(video_path, state_data)
 
 def on_fusion_switch_to_camera_tab(cam_url, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
-    return on_fusion_camera_connect(cam_url, state_data)
+    target_url = cam_url if (cam_url and str(cam_url).strip()) else CANTHO_CAMERAS[0]["url"]
+    return on_fusion_camera_connect(target_url, state_data)
 
 def on_fusion_image_loaded(img_rgb, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
     if img_rgb is None:
         return gr.skip(), gr.skip(), state_data, "<div style='color:red;'>⚠️ Chưa có ảnh tải lên!</div>"
     if state_data is None:
         state_data = DEFAULT_FUSION_STATE.copy()
     state_data["source_type"] = "image"
+    state_data["p_bot"] = None
+    state_data["p_mid"] = None
+    state_data["p_top"] = None
+    state_data["gauge_step"] = 0
+    state_data["draft_roi_pts"] = []
+    state_data["roi_pts"] = None
     if img_rgb is not None:
         h_i, w_i = img_rgb.shape[:2]
         if w_i > 640:
             img_rgb = cv2.resize(img_rgb, (640, int(h_i * 640.0 / w_i)), interpolation=cv2.INTER_AREA)
         set_state_base_frame(state_data, cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR), "fusion_base")
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình video", interactive=False)
-    msg = "<div style='color:#22c55e;'>✅ <b>Đã nạp ảnh thành công!</b> Nhấn <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích tuần tự cả Ngập Lụt & Phương Tiện.</div>"
+    msg = "<div style='color:#22c55e;'>✅ <b>Đã nạp ảnh thành công!</b> (Đã làm mới mốc và làn đường). Nhấn <b>BẮT ĐẦU DỰ ĐOÁN AI</b> để phân tích tuần tự cả Ngập Lụt & Phương Tiện.</div>"
     return img_rgb, slider_update, state_data, msg
 
 def on_fusion_video_loaded(video_file, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
     clean_path = get_clean_filepath(video_file)
     if not clean_path or not Path(clean_path).exists():
@@ -2057,6 +2103,12 @@ def on_fusion_video_loaded(video_file, state_data):
         state_data = DEFAULT_FUSION_STATE.copy()
     state_data["source_type"] = "video"
     state_data["video_path"] = clean_path
+    state_data["p_bot"] = None
+    state_data["p_mid"] = None
+    state_data["p_top"] = None
+    state_data["gauge_step"] = 0
+    state_data["draft_roi_pts"] = []
+    state_data["roi_pts"] = None
 
     cap = cv2.VideoCapture(clean_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 100
@@ -2073,11 +2125,14 @@ def on_fusion_video_loaded(video_file, state_data):
     set_state_base_frame(state_data, frame_bgr, "fusion_base")
     state_data["total_frames"] = total_frames
     slider_update = gr.Slider(minimum=0, maximum=max(1, total_frames - 1), value=0, step=1, label="Khung hình video", interactive=True)
-    msg = f"<div style='color:#22c55e;'>🎬 <b>Đã nạp video:</b> {Path(clean_path).name} ({total_frames} frames). Hãy nhấp chuột lên màn hình để gán cột mốc hoặc làn đường, sau đó bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN'</b>!</div>"
+    msg = f"<div style='color:#22c55e;'>🎬 <b>Đã nạp video:</b> {Path(clean_path).name} ({total_frames} frames). Đã tự động làm mới mốc và làn đường, hãy thiết lập lại cho video này hoặc bấm <b>'🚀 BẮT ĐẦU DỰ ĐOÁN'</b>!</div>"
     return _render_fusion_base_preview(frame_bgr, state_data), slider_update, state_data, msg
 
 def on_fusion_camera_connect(cam_url, state_data):
     stop_live_stream()
+    global_multi_gauge_manager.reset_all()
+    global_tab5_arbiter.prev_flood_mask = None
+    global_traffic_analyzer.clear_roi()
     global_traffic_analyzer.reset()
     if state_data is None:
         state_data = DEFAULT_FUSION_STATE.copy()
@@ -2089,6 +2144,12 @@ def on_fusion_camera_connect(cam_url, state_data):
     state_data["source_type"] = "camera_stream"
     state_data["cam_source"] = cam_url
     state_data["cam_title"] = cam_name
+    state_data["p_bot"] = None
+    state_data["p_mid"] = None
+    state_data["p_top"] = None
+    state_data["gauge_step"] = 0
+    state_data["draft_roi_pts"] = []
+    state_data["roi_pts"] = None
 
     cap = cv2.VideoCapture(cam_url)
     ret, frame_bgr = cap.read()
@@ -2101,9 +2162,9 @@ def on_fusion_camera_connect(cam_url, state_data):
         frame_bgr = cv2.cvtColor(INIT_GAUGE_FRAME, cv2.COLOR_RGB2BGR) if INIT_GAUGE_FRAME is not None else None
 
     set_state_base_frame(state_data, frame_bgr, "fusion_base")
-    first_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB) if frame_bgr is not None else None
+    first_frame = _render_fusion_base_preview(frame_bgr, state_data)
     slider_update = gr.Slider(minimum=0, maximum=1, value=0, step=1, label="Khung hình Camera", interactive=False)
-    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_name}!</b> Bấm <b>BẮT ĐẦU DỰ ĐOÁN</b> để phân tích ngập & giao thông trực tiếp.</div>"
+    msg = f"<div style='color:#22c55e;'>📷 <b>Đã kết nối {cam_name}!</b> (Đã làm mới mốc và làn đường). Thiết lập lại mốc/làn đường hoặc bấm <b>BẮT ĐẦU DỰ ĐOÁN</b> để phân tích trực tiếp.</div>"
     return first_frame, slider_update, state_data, msg
 
 def on_fusion_seek_frame(slider_val, state_data):
