@@ -5,7 +5,7 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "https://mask-rica-categories-lined.trycloudflare.com";
+const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "";
 let activeBackendUrl = DEFAULT_BACKEND_URL;
 
 app.use(cors());

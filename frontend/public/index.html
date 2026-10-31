@@ -571,7 +571,7 @@
   <!-- Giao diện nguyên bản từ Model Backend -->
   <iframe 
     id="app-frame" 
-    src="https://harvest-gilbert-indicated-zinc.trycloudflare.com" 
+    src="about:blank" 
     allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
     title="AI Urban Flood & Traffic Congestion Monitor">
   </iframe>
@@ -629,7 +629,7 @@
     // ========================================================================
     const DEFAULT_CONFIG = {
       defaultAuth: '{"username":"jtachitv","key":"2d113c94b6cee76f0b4c31596be9e53a"}',
-      backendUrl: "https://mask-rica-categories-lined.trycloudflare.com"
+      backendUrl: ""
     };
 
     function getConfig() {
@@ -771,8 +771,12 @@
     // KIỂM TRA ONLINE BACKEND API MODEL
     // ========================================================================
     async function checkBackendOnline() {
-      if (isExecutingKernel) return;
+      if (isExecutingKernel) return false;
       const config = getConfig();
+      if (!config.backendUrl || config.backendUrl === "about:blank") {
+        updateStatusUI("offline", "🔴 Backend GPU: Offline");
+        return false;
+      }
 
       // 1. Thử gọi API Status phía Server (Same-Origin, không bao giờ bị lỗi CORS)
       try {
@@ -783,9 +787,6 @@
           if (data.online) {
             updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
             return true;
-          } else {
-            updateStatusUI("offline", "🔴 Backend GPU: Offline");
-            return false;
           }
         }
       } catch (serverErr) {}
@@ -803,12 +804,7 @@
           updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
           return true;
         }
-      } catch (directErr) {
-        if (isServerOnline) {
-          updateStatusUI("online", "🟢 Backend GPU: Online");
-          return true;
-        }
-      }
+      } catch (directErr) {}
 
       updateStatusUI("offline", "🔴 Backend GPU: Offline");
       return false;
@@ -1054,12 +1050,14 @@
       checkBackendOnline();
     });
 
-    frame.addEventListener("load", () => {
-      updateStatusUI("online", "🟢 Backend GPU: Online");
-      showToast("Giao diện AI Model đã sẵn sàng!", "success");
-      setTimeout(() => {
-        checkBackendOnline();
-      }, 1000);
+    frame.addEventListener("load", async () => {
+      if (frame.src && frame.src !== "about:blank" && !frame.src.startsWith("data:")) {
+        const online = await checkBackendOnline();
+        if (online) {
+          hideOverlay();
+          showToast("Giao diện AI Model đã sẵn sàng!", "success");
+        }
+      }
     });
 
     // ========================================================================
@@ -1082,13 +1080,34 @@
     // TỰ ĐỘNG ĐÁNH THỨC THEO YÊU CẦU KHI VÀO TRANG WEB (AUTO ON-DEMAND WAKEUP)
     // ========================================================================
     async function initAutoLifecycle() {
+      // 1. Đồng bộ URL Backend mới nhất từ Server Render
+      try {
+        const cfgRes = await fetch("/api/config");
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          if (cfg && cfg.defaultBackendUrl) {
+            DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+          }
+        }
+      } catch (e) {}
+
+      // 2. Kiểm tra tính sẵn sàng thực sự của GPU Backend
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
+        showOverlay();
         const config = getConfig();
         if (config.auth) {
-          console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động kiểm tra và đánh thức GPU Tesla T4...");
+          console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động đánh thức GPU Tesla T4...");
           startKaggleNotebookExecution(config.auth);
+        } else {
+          showOverlay("Cần cấu hình GPU", "Vui lòng nhập Kaggle Token trong mục Cài đặt để hệ thống tự động kích hoạt GPU.");
         }
+      } else {
+        const currentConfig = getConfig();
+        if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
+          frame.src = currentConfig.backendUrl;
+        }
+        hideOverlay();
       }
     }
     initAutoLifecycle();
