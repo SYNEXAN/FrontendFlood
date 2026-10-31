@@ -42,6 +42,23 @@ from ultralytics import YOLO
 # Gradio sẽ nén trực tiếp trong RAM và gửi Base64 Data URI trong luồng SSE.
 # Trình duyệt nhận frame và hiển thị tức thì trên canvas gốc, 0 độ trễ, không giật lag.
 try:
+    import gradio_client.utils as _gcu
+    _orig_is_http_url_like = _gcu.is_http_url_like
+    def _patched_is_http_url_like(possible_url) -> bool:
+        if isinstance(possible_url, str) and possible_url.startswith(("http://", "https://", "data:")):
+            return True
+        return _orig_is_http_url_like(possible_url)
+    _gcu.is_http_url_like = _patched_is_http_url_like
+except Exception:
+    pass
+
+try:
+    import gradio.client_utils as _g_cu
+    _g_cu.is_http_url_like = _patched_is_http_url_like
+except Exception:
+    pass
+
+try:
     import gradio.image_utils as _iu
     from gradio.data_classes import ImageData
 
@@ -53,7 +70,7 @@ try:
         if isinstance(value, ImageData):
             return value
         if isinstance(value, str) and value.startswith("data:image/"):
-            return ImageData(url=value, orig_name="frame.jpg")
+            return ImageData(url=value, path=value, orig_name="frame.jpg")
         
         # Xử lý numpy array (hud_rgb, frame video, preview thước đo)
         if isinstance(value, np.ndarray):
@@ -70,8 +87,9 @@ try:
                 bgr = cv2.resize(bgr, (640, int(h_f * 640.0 / w_f)), interpolation=cv2.INTER_AREA)
             success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 72])
             if success:
-                b64 = base64.b64encode(buf).decode("ascii")
-                return ImageData(url=f"data:image/jpeg;base64,{b64}", orig_name="frame.jpg")
+                b64_str = base64.b64encode(buf).decode("ascii")
+                b64_uri = f"data:image/jpeg;base64,{b64_str}"
+                return ImageData(url=b64_uri, path=b64_uri, orig_name="frame.jpg")
 
         # Xử lý PIL Image
         if isinstance(value, Image.Image):
