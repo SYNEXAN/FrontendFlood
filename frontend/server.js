@@ -135,7 +135,38 @@ async function resolveKaggleAuth(authInput) {
     return { username, key, token, authHeader };
 }
 
-// Endpoint kiểm tra tính hợp lệ của Token/Key
+// Helper kiểm tra trạng thái notebook trên Kaggle qua các ứng viên slug tương thích
+async function checkKernelStatus(auth) {
+    const candidates = [
+        { userName: 'nguynthanhthit', kernelSlug: 'synexan-flood-backend-gpu' }
+    ];
+    if (auth.username && auth.username !== 'nguynthanhthit') {
+        candidates.push({ userName: auth.username, kernelSlug: 'synexan-flood-backend-gpu' });
+    }
+
+    for (const cand of candidates) {
+        try {
+            const statusRes = await fetch('https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus', {
+                method: 'POST',
+                headers: {
+                    'Authorization': auth.authHeader,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(cand),
+                signal: AbortSignal.timeout(8000)
+            });
+            if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData && statusData.status) {
+                    return { status: statusData.status, matchedCandidate: cand };
+                }
+            }
+        } catch (_) {}
+    }
+    return { status: 'NOT_FOUND', matchedCandidate: candidates[0] };
+}
+
+// Endpoint kiểm tra tính hợp lệ của Token/Key (Ẩn tên định danh, chỉ thông báo hợp lệ)
 app.post('/api/kaggle-check', async (req, res) => {
     try {
         const { authInput } = req.body;
@@ -145,8 +176,7 @@ app.post('/api/kaggle-check', async (req, res) => {
         const auth = await resolveKaggleAuth(authInput);
         return res.json({
             success: true,
-            username: auth.username,
-            message: `Xác thực thành công tài khoản Kaggle: ${auth.username}`
+            message: 'Xác thực API Kaggle thành công!'
         });
     } catch (err) {
         return res.status(400).json({ error: err.message });
@@ -162,9 +192,28 @@ app.post('/api/kaggle-auto-run', async (req, res) => {
         }
 
         const auth = await resolveKaggleAuth(authInput);
-        console.log(`[INFO] 🚀 Khởi chạy GPU Tesla T4 cho tài khoản: ${auth.username}`);
 
-        // Read official notebook
+        // 1. Kiểm tra trạng thái phiên làm việc hiện tại trên Kaggle để chống kích hoạt trùng lặp
+        const { status: currentStatus } = await checkKernelStatus(auth);
+        console.log(`[INFO] Trạng thái phiên Kaggle hiện tại:`, currentStatus);
+
+        if (currentStatus === 'RUNNING') {
+            return res.json({
+                success: true,
+                alreadyRunning: true,
+                status: 'RUNNING',
+                message: 'GPU Tesla T4 đang hoạt động (Online). Đang kết nối trực tiếp...'
+            });
+        } else if (currentStatus === 'QUEUED') {
+            return res.json({
+                success: true,
+                alreadyQueued: true,
+                status: 'QUEUED',
+                message: 'Notebook đang trong hàng đợi GPU của Kaggle. Đang chờ hệ thống cấp phát...'
+            });
+        }
+
+        // 2. Nếu chưa chạy -> Đẩy notebook lên tài khoản và kích hoạt GPU
         const nbPath = path.join(__dirname, 'public', 'synexan_flood_gpu.ipynb');
         let rawContent = '';
         if (fs.existsSync(nbPath)) {
@@ -187,55 +236,15 @@ app.post('/api/kaggle-auto-run', async (req, res) => {
             });
         }
 
-        const kernelSlug = `${auth.username}/synexan-flood-backend-gpu`;
-
-        // 1. Kiểm tra trạng thái phiên làm việc hiện tại trên Kaggle để chống kích hoạt trùng lặp
-        try {
-            const statusRes = await fetch('https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus', {
-                method: 'POST',
-                headers: {
-                    'Authorization': auth.authHeader,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ userName: auth.username, kernelSlug: 'synexan-flood-backend-gpu' }),
-                signal: AbortSignal.timeout(10000)
-            });
-
-            if (statusRes.ok) {
-                const statusData = await statusRes.json();
-                const currentStatus = statusData.status; // "RUNNING", "QUEUED", "COMPLETE", "ERROR"
-                console.log(`[INFO] Trạng thái phiên Kaggle hiện tại của ${kernelSlug}:`, currentStatus);
-
-                if (currentStatus === 'RUNNING') {
-                    return res.json({
-                        success: true,
-                        alreadyRunning: true,
-                        status: 'RUNNING',
-                        username: auth.username,
-                        kernelSlug: kernelSlug,
-                        message: `GPU Tesla T4 đang chạy sẵn trên tài khoản ${auth.username}. Đang kết nối trực tiếp...`
-                    });
-                } else if (currentStatus === 'QUEUED') {
-                    return res.json({
-                        success: true,
-                        alreadyQueued: true,
-                        status: 'QUEUED',
-                        username: auth.username,
-                        kernelSlug: kernelSlug,
-                        message: `Notebook đang trong hàng đợi GPU của Kaggle. Đang chờ hệ thống cấp phát...`
-                    });
-                }
-            }
-        } catch (statusErr) {
-            console.warn('[WARN] Không thể kiểm tra session status trước khi chạy:', statusErr.message);
-        }
+        const targetUser = auth.username || 'nguynthanhthit';
+        const kernelSlug = `${targetUser}/synexan-flood-backend-gpu`;
 
         const savePayload = JSON.stringify({
             slug: kernelSlug,
-            newTitle: "synexan-flood-backend-gpu",
+            newTitle: 'synexan-flood-backend-gpu',
             text: JSON.stringify(nb),
-            language: "python",
-            kernelType: "notebook",
+            language: 'python',
+            kernelType: 'notebook',
             isPrivate: true,
             enableGpu: true,
             enableInternet: true
@@ -256,10 +265,8 @@ app.post('/api/kaggle-auto-run', async (req, res) => {
             const ver = data.versionNumber || 1;
             return res.json({
                 success: true,
-                username: auth.username,
-                kernelSlug: kernelSlug,
                 versionNumber: ver,
-                message: `Đã kích hoạt GPU Tesla T4 thành công cho tài khoản ${auth.username}! (Phiên bản #${ver})`
+                message: `Đã kích hoạt GPU Tesla T4 thành công! (Phiên bản #${ver}). Đang chuẩn bị luồng...`
             });
         } else {
             const errText = await kaggleRes.text();
@@ -281,25 +288,11 @@ app.post('/api/kaggle-status', async (req, res) => {
             return res.status(400).json({ error: 'Chưa cung cấp thông tin xác thực.' });
         }
         const auth = await resolveKaggleAuth(authInput);
-        const statusRes = await fetch('https://api.kaggle.com/v1/kernels.KernelsApiService/GetKernelSessionStatus', {
-            method: 'POST',
-            headers: {
-                'Authorization': auth.authHeader,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ userName: auth.username, kernelSlug: 'synexan-flood-backend-gpu' }),
-            signal: AbortSignal.timeout(8000)
+        const { status } = await checkKernelStatus(auth);
+        return res.json({
+            success: true,
+            status: status
         });
-
-        if (statusRes.ok) {
-            const data = await statusRes.json();
-            return res.json({
-                success: true,
-                username: auth.username,
-                status: data.status || 'UNKNOWN'
-            });
-        }
-        return res.json({ success: true, username: auth.username, status: 'NOT_FOUND' });
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }

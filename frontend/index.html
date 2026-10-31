@@ -600,7 +600,7 @@
           </label>
         </label>
         <input type="file" id="fileKaggleJson" accept=".json" style="display: none;">
-        <textarea id="inputSmartKey" class="form-input" rows="3" style="resize: vertical; font-family: monospace; font-size: 13px; padding: 10px;" placeholder='Dán Token (KGAT_...) hoặc nội dung file kaggle.json vào đây...&#10;Ví dụ: {"username": "...", "key": "..."}'></textarea>
+        <textarea id="inputSmartKey" class="form-input" rows="3" style="resize: vertical; font-family: monospace; font-size: 13px; padding: 10px; -webkit-text-security: disc;" placeholder="••••••••••••••••••••••••••••••••••••••••"></textarea>
         <div class="form-tip" style="margin-top: 6px;">
           Lấy Token tại: <b>Kaggle.com</b> &rarr; <b>Settings</b> &rarr; Bấm <b>"Create New Token"</b> (tải file .json) hoặc <b>"Create New Personal Access Token"</b>.
         </div>
@@ -628,7 +628,7 @@
     // CẤU HÌNH MẶC ĐỊNH & LƯU TRỮ
     // ========================================================================
     const DEFAULT_CONFIG = {
-      defaultAuth: atob("S0dBVF85YTk2MTE5Y2I4Yzc0ZGRjNjA2MDk2MmQwYjYxY2RkMg=="),
+      defaultAuth: '{"username":"jtachitv","key":"2d113c94b6cee76f0b4c31596be9e53a"}',
       backendUrl: "https://mask-rica-categories-lined.trycloudflare.com"
     };
 
@@ -999,7 +999,7 @@
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          showToast(`✅ ${data.message}`, "success");
+          showToast("✅ Xác thực API Kaggle thành công!", "success");
         } else {
           showToast(`❌ ${data.error || "Token không hợp lệ"}`, "error");
         }
