@@ -755,7 +755,8 @@ class TrafficCongestionAnalyzer:
 
         # 7. Vẽ HUD mảnh và tạo bảng thông số + cảnh báo
         hud_bgr = self.render_traffic_hud(work_frame, report, is_single_image=is_single_image)
-        output_frame = hud_bgr if return_bgr else cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
+        hud_rgb = hud_bgr if return_bgr else cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
+        output_frame = hud_rgb
 
         spd_str = f"{avg_speed_kmh:.1f} km/h" if not is_single_image else "Ảnh tĩnh"
         df = pd.DataFrame([{
