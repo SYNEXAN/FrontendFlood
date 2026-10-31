@@ -57,7 +57,7 @@
       position: fixed;
       top: 14px;
       right: 18px;
-      z-index: 100;
+      z-index: 1001;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -376,7 +376,7 @@
       background: rgba(0, 0, 0, 0.7);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
-      z-index: 1000;
+      z-index: 1002;
       display: none;
       align-items: center;
       justify-content: center;
@@ -806,7 +806,7 @@
     // KIỂM TRA ONLINE BACKEND API MODEL
     // ========================================================================
     async function checkBackendOnline() {
-      if (isExecutingKernel) return false;
+
       const config = getConfig();
       if (!config.backendUrl || config.backendUrl === "about:blank") {
         updateStatusUI("offline", "🔴 Backend GPU: Offline");
@@ -947,28 +947,48 @@
           updateStep(4, "running", `4. Đang kết nối Cloudflare Tunnel (${seconds}s)...`);
         }
 
-        const isOnline = await checkBackendOnline();
-        if (isOnline) {
-          clearInterval(monitorTimer);
-          updateStep(4, "done", "4. Kết nối Cloudflare Tunnel thành công!");
-          updateStatusUI("online", "🟢 Backend GPU: Online");
+        // 1. Liên tục cập nhật URL Backend mới nhất từ Server Render khi notebook Kaggle kết nối
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            }
+          }
+        } catch (e) {}
 
-          overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang nạp giao diện...";
-          showToast("GPU AI đã online! Đang mở giao diện...", "success");
+        // 2. Kiểm tra trực tiếp tính khả dụng của Backend URL
+        const currentConfig = getConfig();
+        if (currentConfig.backendUrl && currentConfig.backendUrl.startsWith("http")) {
+          try {
+            const pingUrl = `/api/status?target=${encodeURIComponent(currentConfig.backendUrl)}`;
+            const pRes = await fetch(pingUrl, { cache: "no-store" });
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              if (pData.online) {
+                clearInterval(monitorTimer);
+                updateStep(4, "done", "4. Kết nối Cloudflare Tunnel thành công!");
+                updateStatusUI("online", `🟢 Backend GPU: Online (${pData.latencyMs || 0}ms)`);
 
-          const currentConfig = getConfig();
-          frame.src = currentConfig.backendUrl;
+                overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
+                showToast("GPU AI đã online! Đang mở giao diện...", "success");
 
-          setTimeout(() => {
-            hideOverlay();
-            isExecutingKernel = false;
-            btnConnectApiTop.disabled = false;
-            btnConnectApiOverlay.disabled = false;
-            btnConnectApiTopText.textContent = "Chạy lại Model";
-            btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
-            cmdBadgeWrapper.style.display = "flex";
-          }, 1200);
-          return;
+                frame.src = currentConfig.backendUrl;
+
+                setTimeout(() => {
+                  hideOverlay();
+                  isExecutingKernel = false;
+                  btnConnectApiTop.disabled = false;
+                  btnConnectApiOverlay.disabled = false;
+                  btnConnectApiTopText.textContent = "Chạy lại Model";
+                  btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
+                  if (cmdBadgeWrapper) cmdBadgeWrapper.style.display = "flex";
+                }, 800);
+                return;
+              }
+            }
+          } catch (e) {}
         }
 
         if (seconds >= MAX_WAIT_SECONDS) {
