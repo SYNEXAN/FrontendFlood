@@ -64,23 +64,44 @@
 
 ## 🚀 Hướng Dẫn Triển Khai (Deployment Guide)
 
-### 1. Triển Khai Frontend Trên Render.com (Chỉ mất 2 phút)
+### 1. Triển Khai Frontend Trên Vercel (Tốc độ mở trang tức thì ~0.1s, KHÔNG NGỦ ĐÔNG)
 
-1. Đăng nhập vào [Render Dashboard](https://dashboard.render.com).
-2. Bấm **New +** -> Chọn **Web Service** (hoặc **Static Site**).
-3. Kết nối với repository GitHub: `https://github.com/SYNEXAN/FrontendFlood`.
-4. Điền các thông số:
-   - **Name**: `flood-traffic-monitor` (hoặc tên tùy thích).
-   - **Root Directory**: `frontend`.
-   - **Build Command**: `npm install` (nếu chọn Web Service) hoặc để trống (nếu chọn Static Site).
-   - **Start Command**: `node server.js` (nếu chọn Web Service) hoặc để trống.
-   - **Publish Directory**: `public` (nếu chọn Static Site).
-5. Bấm **Create Service** -> Render sẽ cấp đường link chính thức dạng:  
-   👉 `https://flood-traffic-monitor.onrender.com`
+#### Bước 1.1: Tạo Upstash Redis Database Miễn Phí (Chỉ mất 1 phút)
+1. Truy cập [Upstash Console](https://console.upstash.com/) và đăng nhập (bằng GitHub hoặc Google).
+2. Bấm **Create Database**:
+   - **Name**: `flood-monitor-redis` (hoặc tên tùy thích).
+   - **Type**: Regional.
+   - **Region**: Chọn `ap-southeast-1` (Singapore) để có độ trễ thấp nhất về Việt Nam.
+3. Sau khi tạo xong, cuộn xuống mục **REST API**, sao chép 2 giá trị:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+
+#### Bước 1.2: Triển Khai Lên Vercel (1-Click)
+1. Đăng nhập vào [Vercel Dashboard](https://vercel.com).
+2. Bấm **Add New...** -> Chọn **Project**.
+3. Import repository GitHub: `https://github.com/SYNEXAN/FrontendFlood`.
+4. Tại mục **Environment Variables**, thêm 2 biến:
+   - `UPSTASH_REDIS_REST_URL`: Dán URL từ Upstash.
+   - `UPSTASH_REDIS_REST_TOKEN`: Dán Token từ Upstash.
+5. Bấm **Deploy**.
+   👉 Vercel sẽ cấp domain toàn cầu dạng `https://frontend-flood.vercel.app`, mở trang tức thì trong 0.1 giây và không bao giờ bị ngủ đông.
 
 ---
 
-### 2. Khởi Chạy Backend AI Trên Kaggle Cloud GPU
+### 2. Triển Khai Dự Phòng Trên Render.com (Tùy chọn)
+
+1. Đăng nhập vào [Render Dashboard](https://dashboard.render.com).
+2. Bấm **New +** -> Chọn **Web Service**.
+3. Kết nối với repository GitHub: `https://github.com/SYNEXAN/FrontendFlood`.
+4. Cấu hình:
+   - **Root Directory**: `frontend`.
+   - **Build Command**: `npm install`.
+   - **Start Command**: `node server.js`.
+5. Bấm **Create Service**.
+
+---
+
+### 3. Khởi Chạy Backend AI Trên Kaggle Cloud GPU (Tesla T4)
 
 1. Mở Notebook trên Kaggle: [nguynvlun/floodkaggleapi](https://www.kaggle.com/code/nguynvlun/floodkaggleapi).
 2. Đảm bảo cấu hình: **Accelerator = GPU T4 x 2** (hoặc GPU P100) và **Internet = ON**.
