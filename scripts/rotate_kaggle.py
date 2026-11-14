@@ -26,6 +26,7 @@ MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0")
 FORCE_PUSH = os.environ.get("FORCE_PUSH", "false").lower() in ("true", "1", "yes")
 KERNEL_SLUG = "synexan-flood-backend-gpu"
 FRONTEND_API_URL = os.environ.get("FRONTEND_API_URL", "https://frontend-flood.vercel.app/api/kernel-log")
+KAGGLE_CMD = [sys.executable, "-m", "kaggle"]
 
 
 def report_kernel_state(status, message, details=None, account=None):
@@ -197,7 +198,7 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
     target_id = f"{username}/{slug}"
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "status", target_id],
+            [*KAGGLE_CMD, "kernels", "status", target_id],
             capture_output=True,
             text=True,
             timeout=20
@@ -210,7 +211,7 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
             print("   ⚠️ [Rate Limit] Kaggle API 429 Too Many Requests. Tạm nghỉ 12s...")
             time.sleep(12)
             proc2 = subprocess.run(
-                ["kaggle", "kernels", "status", target_id],
+                [*KAGGLE_CMD, "kernels", "status", target_id],
                 capture_output=True,
                 text=True,
                 timeout=20
@@ -240,7 +241,7 @@ def find_active_backend(username):
     """
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "-s", "synexan", "-v"],
+            [*KAGGLE_CMD, "kernels", "list", "--mine", "-s", "synexan", "-v"],
             capture_output=True,
             text=True,
             timeout=20
@@ -257,7 +258,7 @@ def find_active_backend(username):
                 if username.lower() in kernel_ref.lower() and "synexan" in kernel_ref.lower():
                     time.sleep(1) # Tôn trọng Kaggle rate limit
                     st_proc = subprocess.run(
-                        ["kaggle", "kernels", "status", kernel_ref],
+                        [*KAGGLE_CMD, "kernels", "status", kernel_ref],
                         capture_output=True,
                         text=True,
                         timeout=10
@@ -266,7 +267,7 @@ def find_active_backend(username):
                     lower_st = st_out.lower()
                     if "429" in lower_st or "too many requests" in lower_st:
                         time.sleep(12)
-                        st_proc2 = subprocess.run(["kaggle", "kernels", "status", kernel_ref], capture_output=True, text=True, timeout=10)
+                        st_proc2 = subprocess.run([*KAGGLE_CMD, "kernels", "status", kernel_ref], capture_output=True, text=True, timeout=10)
                         st_out = (st_proc2.stdout + st_proc2.stderr).strip()
                         lower_st = st_out.lower()
 
@@ -293,7 +294,7 @@ def cleanup_stale_kernels(username, current_slug=None):
     print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan cũ của '{username}' (-s synexan -v)...")
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "-s", "synexan", "-v"],
+            [*KAGGLE_CMD, "kernels", "list", "--mine", "-s", "synexan", "-v"],
             capture_output=True,
             text=True,
             timeout=20
@@ -311,7 +312,7 @@ def cleanup_stale_kernels(username, current_slug=None):
 
                     time.sleep(1) # Nghỉ nhẹ giữa các lệnh để tôn trọng rate limit
                     st_proc = subprocess.run(
-                        ["kaggle", "kernels", "status", kernel_ref],
+                        [*KAGGLE_CMD, "kernels", "status", kernel_ref],
                         capture_output=True,
                         text=True,
                         timeout=10
@@ -321,14 +322,14 @@ def cleanup_stale_kernels(username, current_slug=None):
                     # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED hoặc cũ để giải phóng slot GPU
                     if "queued" in st_out or (FORCE_PUSH and "running" in st_out):
                         print(f"   🛑 Đang hủy phiên synexan cũ kẹt hàng đợi để giải phóng slot: {kernel_ref}")
-                        subprocess.run(["kaggle", "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
+                        subprocess.run([*KAGGLE_CMD, "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
                         time.sleep(8) # Đợi Kaggle giải phóng slot trong cụm máy chủ
                         st_out = "cancel_acknowledged"
 
                     # 2. Xóa các kernel synexan đã kết thúc/lỗi/hủy để danh sách luôn sạch
                     if "complete" in st_out or "error" in st_out or "cancel_acknowledged" in st_out:
                         print(f"   🗑️ Đang xóa kernel synexan đã kết thúc: {kernel_ref}")
-                        subprocess.run(["kaggle", "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
+                        subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
                         time.sleep(1)
     except Exception as e:
         print(f"   [Auto-Cleanup] Lỗi quét kernel: {e}")
@@ -396,7 +397,7 @@ def push_kernel():
     """Thực thi đẩy notebook lên Kaggle GPU (cấu hình machine_shape trong kernel-metadata.json)."""
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "push", "-p", "notebooks"],
+            [*KAGGLE_CMD, "kernels", "push", "-p", "notebooks"],
             capture_output=True,
             text=True,
             timeout=45
@@ -410,15 +411,64 @@ def push_kernel():
         return False, str(e)
 
 
-def wait_for_live_backend_and_test(username, slug, timeout_seconds=180):
+def verify_backend_health(url, timeout=5):
+    """
+    Kiểm tra trực tiếp URL backend có đang thực sự phản hồi 200 OK hay không.
+    Trả về (is_alive, is_warming_up, details).
+    - is_alive = True nếu /heartbeat hoặc /config trả về HTTP 200.
+    - is_warming_up = True nếu gặp HTTP 530, 502, 504 (tunnel mở nhưng local port 7860 đang nạp weights).
+    - is_alive = False nếu gặp 1033 (tunnel cũ đã hết hạn) hoặc lỗi khác.
+    """
+    if not url or not url.startswith("http"):
+        return False, False, "URL không hợp lệ"
+
+    clean_url = url.rstrip("/")
+    for endpoint in ["/heartbeat", "/config"]:
+        check_url = f"{clean_url}{endpoint}"
+        try:
+            req = urllib.request.Request(
+                check_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status == 200:
+                    return True, False, f"HTTP 200 OK tại {endpoint}"
+        except urllib.error.HTTPError as he:
+            if he.code in [530, 502, 504]:
+                return False, True, f"HTTP {he.code} (Gradio đang nạp mô hình vào GPU)"
+            elif he.code in [1033]:
+                return False, False, f"HTTP {he.code} (Tunnel cũ đã hết hạn)"
+        except Exception as e:
+            err_str = str(e)
+            if "530" in err_str:
+                return False, True, "Cloudflare 530 (Đang khởi động)"
+    return False, False, "Chưa nhận phản hồi từ backend"
+
+
+def wait_for_live_backend_and_test(username, slug, timeout_seconds=300):
     """
     Sau khi notebook chuyển sang RUNNING trên Kaggle:
     Chờ Gradio nạp mô hình, mở port 7860 và phát tán Cloudflare URL về Vercel.
-    Khi URL xuất hiện, tự động chạy test suy luận AI (Inference Test) để kiểm chứng 100%!
+    Khi URL xuất hiện và được xác thực phản hồi 200 OK, tự động chạy test suy luận AI (Inference Test)!
     """
     print(f"\n======================================================================")
     print(f"⏳ [SUPERVISOR] Chờ Backend GPU ({username}/{slug}) nạp mô hình & phát tán URL (tối đa {timeout_seconds}s)...")
     print(f"======================================================================")
+
+    # 1. Ghi nhận URL ban đầu trên Vercel để tránh nhận nhầm URL cũ (stale cache)
+    initial_url = ""
+    try:
+        req_init = urllib.request.Request(
+            "https://frontend-flood.vercel.app/api/config",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        with urllib.request.urlopen(req_init, timeout=6) as resp:
+            d_init = json.loads(resp.read().decode("utf-8"))
+            initial_url = d_init.get("defaultBackendUrl", "").strip()
+            print(f"📌 [Supervisor] URL hiện có trên Vercel trước khi khởi động: '{initial_url}'")
+    except Exception as e:
+        print(f"⚠️ [Supervisor] Không đọc được initial URL: {e}")
+
     elapsed = 0
     poll_gap = 10
 
@@ -436,29 +486,48 @@ def wait_for_live_backend_and_test(username, slug, timeout_seconds=180):
                 k_log = data.get("kernelLog") or {}
                 k_status = k_log.get("status")
                 k_msg = k_log.get("message", "")
+                k_details = (k_log.get("details") or "").strip()
 
                 print(f"   [{elapsed}s/{timeout_seconds}s] Vercel Status: {k_status} | Msg: {k_msg}")
 
-                if live_url and live_url.startswith("http"):
-                    print(f"\n🎉🎉🎉 [BẮT ĐƯỢC LIVE BACKEND URL]: {live_url} 🎉🎉🎉")
-                    report_kernel_state("ready", "Backend GPU đã sẵn sàng và kết nối thành công!", live_url, username)
+                candidate_url = None
+                if k_details and k_details.startswith("http"):
+                    candidate_url = k_details
+                elif live_url and live_url.startswith("http"):
+                    if live_url != initial_url or k_status == "ready":
+                        candidate_url = live_url
 
-                    # Chạy script test suy luận AI
-                    print("🚀 Đang chạy script kiểm thử suy luận AI (Inference Test) thực tế...")
-                    test_proc = subprocess.run(
-                        [sys.executable, "scripts/test_backend_inference.py", "--url", live_url],
-                        capture_output=True,
-                        text=True,
-                        timeout=90
-                    )
-                    print(test_proc.stdout)
-                    if test_proc.stderr:
-                        print(f"⚠️ [Logs phụ]: {test_proc.stderr}")
+                if candidate_url:
+                    print(f"   🔎 Thẩm tra tính sẵn sàng của URL: {candidate_url}...")
+                    is_alive, is_warming, probe_msg = verify_backend_health(candidate_url, timeout=5)
 
-                    print("=" * 70)
-                    print("✅ [HOÀN TẤT MỤC TIÊU 100%] Backend GPU hoạt động mượt mà và đã sẵn sàng phục vụ!")
-                    print("=" * 70)
-                    return True
+                    if is_alive:
+                        print(f"\n🎉🎉🎉 [XÁC THỰC THÀNH CÔNG LIVE BACKEND URL]: {candidate_url} ({probe_msg}) 🎉🎉🎉")
+                        report_kernel_state("ready", "Backend GPU đã sẵn sàng và kết nối thành công!", candidate_url, username)
+
+                        # Chạy script test suy luận AI
+                        print("🚀 Đang chạy script kiểm thử suy luận AI (Inference Test) thực tế...")
+                        test_proc = subprocess.run(
+                            [sys.executable, "scripts/test_backend_inference.py", "--url", candidate_url],
+                            capture_output=True,
+                            text=True,
+                            timeout=120
+                        )
+                        print(test_proc.stdout)
+                        if test_proc.stderr:
+                            print(f"⚠️ [Logs phụ]: {test_proc.stderr}")
+
+                        if test_proc.returncode == 0:
+                            print("=" * 70)
+                            print("✅ [HOÀN TẤT MỤC TIÊU 100%] Backend GPU hoạt động mượt mà và đã sẵn sàng phục vụ!")
+                            print("=" * 70)
+                            return True
+                        else:
+                            print(f"⚠️ Test suy luận trả về mã {test_proc.returncode}. Tiếp tục theo dõi...")
+                    elif is_warming:
+                        print(f"   ⏳ Backend đang khởi động ({probe_msg}). Vui lòng chờ...")
+                    else:
+                        print(f"   ⚠️ URL chưa sẵn sàng: {probe_msg}")
 
                 if k_status == "error":
                     print(f"❌ [LỖI TỪ NOTEBOOK]: {k_msg}")
@@ -466,6 +535,13 @@ def wait_for_live_backend_and_test(username, slug, timeout_seconds=180):
 
         except Exception as e:
             print(f"   [Supervisor] Đang đợi Vercel API: {e}")
+
+        # Định kỳ mỗi 30s kiểm tra trạng thái kernel trên Kaggle xem có bị lỗi ngoài ý muốn không
+        if elapsed % 30 == 0:
+            k_st, _ = get_exact_kernel_status(username, slug)
+            if k_st in ["ERROR", "CANCELED"]:
+                print(f"❌ [Kaggle Kernel] Phiên {username}/{slug} đã dừng với trạng thái: {k_st}")
+                return False
 
     print("⚠️ Quá thời gian chờ URL trực tiếp. Phiên backend vẫn đang tiếp tục khởi chạy trên Kaggle.")
     return False
@@ -508,7 +584,7 @@ def main():
                     active_slug = active_ref.split("/")[-1]
                     print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
                     try:
-                        log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
+                        log_p = subprocess.run([*KAGGLE_CMD, "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
                         print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
                     except Exception as le:
                         print(f"   [Logs error]: {le}")

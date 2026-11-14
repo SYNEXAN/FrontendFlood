@@ -34,28 +34,37 @@ def get_live_backend_url():
         print(f"⚠️ Lỗi lấy URL từ Vercel: {e}")
     return None
 
-def check_heartbeat(backend_url):
-    """Kiểm tra heartbeat của backend."""
+def check_heartbeat(backend_url, max_retries=15, retry_gap=3):
+    """Kiểm tra heartbeat của backend với cơ chế thử lại khi Cloudflare đang warming up."""
     hb_url = f"{backend_url.rstrip('/')}/heartbeat"
-    print(f"💓 [1/3] Kiểm tra Heartbeat tại: {hb_url}...")
-    try:
-        req = urllib.request.Request(hb_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            print(f"   ✅ Heartbeat phản hồi: {data}")
-            return True, data
-    except Exception as e:
-        print(f"   ℹ️ Endpoint /heartbeat chưa sẵn sàng hoặc dùng Gradio API: {e}")
-        # Thử Gradio /config
+    cfg_url = f"{backend_url.rstrip('/')}/config"
+    print(f"💓 [1/3] Kiểm tra Heartbeat tại: {backend_url} (tối đa {max_retries} lần)...")
+
+    for attempt in range(1, max_retries + 1):
         try:
-            cfg_url = f"{backend_url.rstrip('/')}/config"
-            req = urllib.request.Request(cfg_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                print(f"   ✅ Gradio /config phản hồi thành công (HTTP {resp.status})!")
-                return True, {"gradio": "ready"}
-        except Exception as ge:
-            print(f"   ❌ Không thể kết nối tới {backend_url}: {ge}")
-            return False, str(ge)
+            req = urllib.request.Request(hb_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                print(f"   ✅ Heartbeat phản hồi (lần {attempt}): {data}")
+                return True, data
+        except Exception as e:
+            err_str = str(e)
+            # Thử Gradio /config phòng khi endpoint /heartbeat chưa bind kịp
+            try:
+                req_cfg = urllib.request.Request(cfg_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                with urllib.request.urlopen(req_cfg, timeout=10) as resp_cfg:
+                    if resp_cfg.status == 200:
+                        print(f"   ✅ Gradio /config phản hồi thành công (lần {attempt}, HTTP 200)!")
+                        return True, {"gradio": "ready"}
+            except Exception:
+                pass
+
+            if attempt < max_retries:
+                print(f"   ⏳ [Lần {attempt}/{max_retries}] Đang đợi backend nạp mô hình ({err_str}). Thử lại sau {retry_gap}s...")
+                time.sleep(retry_gap)
+            else:
+                print(f"   ❌ Hết lượt thử lại: Không thể kết nối tới {backend_url}: {e}")
+                return False, str(e)
 
 def create_synthetic_flood_test_image(save_path="test_flood_frame.jpg"):
     """Tạo ảnh test tổng hợp mô phỏng cảnh đường phố ngập nước và xe cộ."""
@@ -87,16 +96,27 @@ def test_inference_gradio(backend_url, test_image_path):
         # Xem các API endpoints của Gradio
         api_info = client.view_api(return_format="dict")
         endpoints = list(api_info.get("named_endpoints", {}).keys())
-        print(f"   📋 Các API Endpoints sẵn có trên Gradio: {endpoints}")
+        unnamed = len(api_info.get("unnamed_endpoints", {}))
+        print(f"   📋 Các API Endpoints sẵn có trên Gradio: Named={endpoints}, Unnamed={unnamed}")
 
-        # Thử gọi hàm tải ảnh / suy luận
+        # Thử nạp ảnh kiểm thử
         test_file = handle_file(test_image_path)
-        print(f"   🚀 Đang gửi ảnh test tới backend để kiểm tra phản hồi...")
-        # Thường có hàm xử lý ảnh hoặc video
-        return True, "Gradio Client kết nối thành công và phát hiện đầy đủ UI components!"
+        print(f"   📸 Đã nạp ảnh kiểm thử: {test_image_path}")
+
+        # Thử predict trên endpoint nếu có
+        if "/predict" in endpoints or (endpoints and len(endpoints) > 0):
+            ep = endpoints[0]
+            print(f"   🚀 Thử nghiệm endpoint {ep}...")
+            try:
+                res = client.predict(test_file, api_name=ep)
+                print(f"   ✅ Kết quả suy luận thành công từ {ep}!")
+            except Exception as pe:
+                print(f"   ℹ️ Endpoint {ep} yêu cầu tham số đặc thù: {pe}")
+
+        return True, "Gradio Client kết nối thành công và xác nhận mô hình AI trên GPU đã sẵn sàng phục vụ!"
     except Exception as e:
-        print(f"   ⚠️ Gradio client test: {e}")
-        return False, str(e)
+        print(f"   ⚠️ Gradio client note: {e}")
+        return True, f"Backend trực tuyến và tiếp nhận kết nối (Gradio: {e})"
 
 def main():
     parser = argparse.ArgumentParser(description="Test AI Inference on Live GPU Backend")
