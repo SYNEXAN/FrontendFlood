@@ -381,10 +381,10 @@ def update_kernel_metadata(username, slug):
 
 
 def push_kernel():
-    """Thực thi đẩy notebook lên Kaggle GPU với accelerator NvidiaTeslaT4 chuẩn."""
+    """Thực thi đẩy notebook lên Kaggle GPU (cấu hình machine_shape trong kernel-metadata.json)."""
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "push", "-p", "notebooks", "--accelerator", "NvidiaTeslaT4"],
+            ["kaggle", "kernels", "push", "-p", "notebooks"],
             capture_output=True,
             text=True,
             timeout=45
