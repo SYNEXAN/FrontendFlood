@@ -48,8 +48,9 @@ def report_kernel_state(status, message, details=None, account=None):
         print(f"   [Telemetry] Không thể gửi log tới frontend: {e}")
 
 
-def resolve_username_from_token(token):
+def resolve_username_from_token(token, fallback_index=None):
     """Tự động nhận diện username từ Kaggle API khi người dùng chỉ cung cấp Token (KGAT_...)."""
+    KNOWN_USERNAMES = ["nguynthanhthit", "cqqdoday", "jtachitv"]
     try:
         url = "https://api.kaggle.com/v1/kernels.KernelsApiService/ListKernels"
         req = urllib.request.Request(
@@ -57,7 +58,8 @@ def resolve_username_from_token(token):
             data=json.dumps({"group": "PROFILE", "pageSize": 5}).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -68,6 +70,10 @@ def resolve_username_from_token(token):
                     return ref.split("/")[0]
     except Exception as e:
         print(f"   [Auto-Username] Không thể tự nhận diện username từ Token: {e}")
+    if fallback_index is not None and fallback_index < len(KNOWN_USERNAMES):
+        fb_user = KNOWN_USERNAMES[fallback_index]
+        print(f"   [Auto-Username Fallback] Sử dụng username định danh từ danh sách tài khoản: {fb_user}")
+        return fb_user
     return None
 
 
@@ -124,7 +130,7 @@ def load_accounts():
 
     # Xử lý tự động phát hiện Username nếu người dùng chỉ cung cấp Key / Token
     resolved = []
-    for item in accounts:
+    for idx, item in enumerate(accounts):
         if isinstance(item, str):
             item = {"token": item} if item.startswith("KGAT_") else {"key": item}
 
@@ -134,7 +140,7 @@ def load_accounts():
 
         if not u and tok:
             print(f"ℹ️ Phát hiện Token không có Username. Đang tự động nhận diện username từ Kaggle API...")
-            discovered_user = resolve_username_from_token(tok)
+            discovered_user = resolve_username_from_token(tok, fallback_index=idx)
             if discovered_user:
                 print(f"✅ Đã tự động nhận diện Username: {discovered_user}")
                 u = discovered_user
