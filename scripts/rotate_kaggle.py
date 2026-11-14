@@ -236,6 +236,19 @@ def main():
         # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp trừ khi FORCE_PUSH)
         is_running, status_msg = check_kernel_running(username)
         print(f"   [Kernel Status] Trạng thái hiện tại của {username}/{KERNEL_SLUG}: {status_msg}")
+        
+        # In logs gần nhất của kernel để chẩn đoán
+        try:
+            log_proc = subprocess.run(
+                ["kaggle", "kernels", "logs", f"{username}/{KERNEL_SLUG}"],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            print(f"   [Kernel Logs] 📜 10 dòng log mới nhất:\n{log_proc.stdout.strip()[-500:] or log_proc.stderr.strip()[:300] or '(Không có log)'}")
+        except Exception as e:
+            print(f"   [Kernel Logs] Không lấy được log: {e}")
+
         if is_running and not FORCE_PUSH:
             print(f"⚡ [TIẾT KIỆM QUOTA] Kernel của '{username}' ĐANG CHẠY ({status_msg})!")
             print("👉 Giữ nguyên phiên hiện tại, không cần push lại.")
