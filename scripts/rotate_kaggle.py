@@ -425,6 +425,67 @@ def push_kernel():
         return False, str(e)
 
 
+def wait_for_live_backend_and_test(username, slug, timeout_seconds=180):
+    """
+    Sau khi notebook chuyển sang RUNNING trên Kaggle:
+    Chờ Gradio nạp mô hình, mở port 7860 và phát tán Cloudflare URL về Vercel.
+    Khi URL xuất hiện, tự động chạy test suy luận AI (Inference Test) để kiểm chứng 100%!
+    """
+    print(f"\n======================================================================")
+    print(f"⏳ [SUPERVISOR] Chờ Backend GPU ({username}/{slug}) nạp mô hình & phát tán URL (tối đa {timeout_seconds}s)...")
+    print(f"======================================================================")
+    elapsed = 0
+    poll_gap = 10
+
+    while elapsed < timeout_seconds:
+        time.sleep(poll_gap)
+        elapsed += poll_gap
+        try:
+            req = urllib.request.Request(
+                "https://frontend-flood.vercel.app/api/config",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                live_url = data.get("defaultBackendUrl", "").strip()
+                k_log = data.get("kernelLog") or {}
+                k_status = k_log.get("status")
+                k_msg = k_log.get("message", "")
+
+                print(f"   [{elapsed}s/{timeout_seconds}s] Vercel Status: {k_status} | Msg: {k_msg}")
+
+                if live_url and live_url.startswith("http"):
+                    print(f"\n🎉🎉🎉 [BẮT ĐƯỢC LIVE BACKEND URL]: {live_url} 🎉🎉🎉")
+                    report_kernel_state("ready", "Backend GPU đã sẵn sàng và kết nối thành công!", live_url, username)
+
+                    # Chạy script test suy luận AI
+                    print("🚀 Đang chạy script kiểm thử suy luận AI (Inference Test) thực tế...")
+                    test_proc = subprocess.run(
+                        [sys.executable, "scripts/test_backend_inference.py", "--url", live_url],
+                        capture_output=True,
+                        text=True,
+                        timeout=90
+                    )
+                    print(test_proc.stdout)
+                    if test_proc.stderr:
+                        print(f"⚠️ [Logs phụ]: {test_proc.stderr}")
+
+                    print("=" * 70)
+                    print("✅ [HOÀN TẤT MỤC TIÊU 100%] Backend GPU hoạt động mượt mà và đã sẵn sàng phục vụ!")
+                    print("=" * 70)
+                    return True
+
+                if k_status == "error":
+                    print(f"❌ [LỖI TỪ NOTEBOOK]: {k_msg}")
+                    return False
+
+        except Exception as e:
+            print(f"   [Supervisor] Đang đợi Vercel API: {e}")
+
+    print("⚠️ Quá thời gian chờ URL trực tiếp. Phiên backend vẫn đang tiếp tục khởi chạy trên Kaggle.")
+    return False
+
+
 def main():
     print("=" * 70)
     print("🤖 SYNEXAN SMART KAGGLE ROTATION RUNNER (DYNAMIC NEW NOTEBOOK)")
@@ -439,126 +500,127 @@ def main():
     print(f"📋 Tìm thấy {len(accounts)} tài khoản trong danh sách dự phòng.")
     print(f"🎯 Ngưỡng an toàn tối thiểu: {MIN_GPU_HOURS_THRESHOLD}h GPU/tuần.")
 
-    for idx, acc in enumerate(accounts, start=1):
-        username = acc["username"]
-        key = acc["key"]
-        masked_key = key[:4] + "****" if len(key) > 4 else "****"
-        print(f"\n🔍 [Tài khoản {idx}/{len(accounts)}] Đang kiểm tra: {username} (Key: {masked_key})...")
+    MAX_SUPERVISOR_ROUNDS = 4
+    for round_idx in range(1, MAX_SUPERVISOR_ROUNDS + 1):
+        print(f"\n" + "=" * 70)
+        print(f"🔄 [VÒNG GIÁM SÁT {round_idx}/{MAX_SUPERVISOR_ROUNDS}] Kiểm tra toàn diện danh sách tài khoản...")
+        print("=" * 70)
 
-        # 1. Cấu hình credentials
-        setup_kaggle_credentials(username, key, acc.get("token"))
+        for idx, acc in enumerate(accounts, start=1):
+            username = acc["username"]
+            key = acc["key"]
+            masked_key = key[:4] + "****" if len(key) > 4 else "****"
+            print(f"\n🔍 [Tài khoản {idx}/{len(accounts)}] Đang kiểm tra: {username} (Key: {masked_key})...")
 
-        # Kiểm tra toàn diện các phiên đang chiếm GPU của tài khoản này
-        active_sessions, busy_other_ref = check_all_account_kernels(username)
+            # 1. Cấu hình credentials
+            setup_kaggle_credentials(username, key, acc.get("token"))
 
-        # Nếu tài khoản này đang bận chạy huấn luyện notebook khác, tự động chuyển ngay sang tài khoản tiếp theo
-        if busy_other_ref:
-            print(f"⚠️ [SLOT BẬN] Tài khoản '{username}' đang bận chạy huấn luyện notebook khác: {busy_other_ref}!")
-            if len(accounts) > 1 and idx < len(accounts):
-                print(f"🔄 Tự động chuyển ngay sang tài khoản tiếp theo để tránh kẹt hàng đợi...")
-                report_kernel_state("limit", f"Tài khoản '{username}' đang bận chạy '{busy_other_ref}'. Tự động chuyển tài khoản kế tiếp...", None, username)
+            # Kiểm tra toàn diện các phiên đang chiếm GPU của tài khoản này
+            active_sessions, busy_other_ref = check_all_account_kernels(username)
+
+            # Nếu tài khoản này đang bận chạy huấn luyện notebook khác, tự động chuyển ngay sang tài khoản tiếp theo
+            if busy_other_ref:
+                print(f"⚠️ [SLOT BẬN] Tài khoản '{username}' đang bận chạy huấn luyện notebook khác: {busy_other_ref}!")
+                if len(accounts) > 1 and idx < len(accounts):
+                    print(f"🔄 Tự động chuyển ngay sang tài khoản tiếp theo để tránh kẹt hàng đợi...")
+                    report_kernel_state("limit", f"Tài khoản '{username}' đang bận chạy '{busy_other_ref}'. Tự động chuyển tài khoản kế tiếp...", None, username)
+                    continue
+
+            # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
+            if not FORCE_PUSH:
+                active_ref, active_status, active_msg = find_active_backend(username)
+
+                if active_status == "RUNNING":
+                    active_slug = active_ref.split("/")[-1]
+                    print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
+                    try:
+                        log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
+                        print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
+                    except Exception as le:
+                        print(f"   [Logs error]: {le}")
+                    print("👉 Tiến hành giám sát kết nối và kiểm thử suy luận...")
+                    report_kernel_state("running", f"Máy chủ GPU '{active_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", active_msg, username)
+                    ok = wait_for_live_backend_and_test(username, active_slug)
+                    if ok:
+                        sys.exit(0)
+
+                if active_status == "QUEUED":
+                    active_slug = active_ref.split("/")[-1]
+                    print(f"⏳ [PHÁT HIỆN HÀNG ĐỢI SẴN CÓ] Notebook '{active_ref}' đã ở trong hàng đợi Kaggle cấp GPU!")
+                    print("👉 Tuyệt đối không đẩy thêm notebook mới để tránh lỗi quá tải 2 GPU sessions.")
+                    report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi Kaggle cấp GPU. Đang theo dõi...", active_msg, username)
+
+                    got_running, _ = monitor_queue_and_retry(username, active_slug, acc.get("token"), timeout_seconds=60)
+                    if got_running:
+                        ok = wait_for_live_backend_and_test(username, active_slug)
+                        if ok:
+                            sys.exit(0)
+
+                    # Nếu sau 60s vẫn QUEUED:
+                    if len(accounts) > 1 and idx < len(accounts):
+                        print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 60s. Kiểm tra tài khoản tiếp theo...")
+                        continue
+                    else:
+                        print(f"⏳ Notebook '{active_ref}' tiếp tục xếp hàng trên Kaggle. Frontend sẽ tự kết nối khi GPU khởi động.")
+                        report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi cấp GPU của Kaggle. Vui lòng chờ trong giây lát, backend sẽ tự động sẵn sàng.", None, username)
+                        continue
+            else:
+                print(f"⚡ [FORCE_PUSH] Bắt buộc đẩy Notebook mới, dọn dẹp các phiên cũ của '{username}'...")
+
+            # 3. Không có notebook nào đang chạy hoặc chờ -> Khởi tạo Notebook Mới Toanh
+            new_slug = generate_unique_slug()
+            print(f"✨ [NEW NOTEBOOK] Chuẩn bị khởi tạo Notebook mới toanh: '{username}/{new_slug}'")
+            report_kernel_state("pushing", f"Đang chuẩn bị khởi tạo Notebook mới toanh: '{new_slug}'...", None, username)
+
+            # 4. Tự động dọn dẹp các notebook cũ đã kết thúc/lỗi để tránh rác
+            cleanup_stale_kernels(username, current_slug=new_slug)
+            time.sleep(2)
+
+            # 5. Cập nhật metadata với Notebook Mới Toanh
+            if not update_kernel_metadata(username, new_slug):
                 continue
 
-        # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
-        if not FORCE_PUSH:
-            active_ref, active_status, active_msg = find_active_backend(username)
+            # 6. Đẩy Notebook Mới lên Kaggle (Version 1 sạch 100%)
+            print(f"🚀 Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...")
+            report_kernel_state("pushing", f"Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...", None, username)
+            success, push_msg = push_kernel()
 
-            if active_status == "RUNNING":
-                print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
-                try:
-                    log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
-                    print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
-                except Exception as le:
-                    print(f"   [Logs error]: {le}")
-                print("👉 Giữ nguyên phiên đang chạy, kết nối trực tiếp không cần khởi động lại.")
-                report_kernel_state("running", f"Máy chủ GPU '{active_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", active_msg, username)
-                print("=" * 70)
-                sys.exit(0)
+            if success:
+                print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' (Version 1) cho '{username}'.")
+                report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp GPU Tesla T4...", push_msg, username)
 
-            if active_status == "QUEUED":
-                active_slug = active_ref.split("/")[-1]
-                print(f"⏳ [PHÁT HIỆN HÀNG ĐỢI SẴN CÓ] Notebook '{active_ref}' đã ở trong hàng đợi Kaggle cấp GPU!")
-                print("👉 Tuyệt đối không đẩy thêm notebook mới để tránh lỗi quá tải 2 GPU sessions.")
-                report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi Kaggle cấp GPU. Đang theo dõi...", active_msg, username)
-
-                got_running, _ = monitor_queue_and_retry(username, active_slug, acc.get("token"), timeout_seconds=60)
+                # Giám sát 60s
+                got_running, _ = monitor_queue_and_retry(username, new_slug, acc.get("token"), timeout_seconds=60)
                 if got_running:
-                    print("=" * 70)
-                    sys.exit(0)
+                    ok = wait_for_live_backend_and_test(username, new_slug)
+                    if ok:
+                        sys.exit(0)
 
-                # Nếu sau 60s vẫn QUEUED:
+                # Nếu sau 60s vẫn QUEUED, xoay sang tài khoản tiếp theo nếu có
                 if len(accounts) > 1 and idx < len(accounts):
-                    print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 60s. Kiểm tra tài khoản tiếp theo...")
+                    print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 60s. Xoay sang tài khoản tiếp theo...")
                     continue
                 else:
-                    print(f"⏳ Notebook '{active_ref}' tiếp tục xếp hàng trên Kaggle. Frontend sẽ tự kết nối khi GPU khởi động.")
-                    report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi cấp GPU của Kaggle. Vui lòng chờ trong giây lát, backend sẽ tự động sẵn sàng.", None, username)
-                    print("=" * 70)
-                    sys.exit(0)
-        else:
-            print(f"⚡ [FORCE_PUSH] Bắt buộc đẩy Notebook mới, dọn dẹp các phiên cũ của '{username}'...")
-
-        # 3. Không có notebook nào đang chạy hoặc chờ -> Khởi tạo Notebook Mới Toanh
-        new_slug = generate_unique_slug()
-        print(f"✨ [NEW NOTEBOOK] Chuẩn bị khởi tạo Notebook mới toanh: '{username}/{new_slug}'")
-        report_kernel_state("pushing", f"Đang chuẩn bị khởi tạo Notebook mới toanh: '{new_slug}'...", None, username)
-
-        # 4. Tự động dọn dẹp các notebook cũ đã kết thúc/lỗi để tránh rác
-        cleanup_stale_kernels(username, current_slug=new_slug)
-        time.sleep(2)
-
-        # 5. Cập nhật metadata với Notebook Mới Toanh
-        if not update_kernel_metadata(username, new_slug):
-            continue
-
-        # 6. Đẩy Notebook Mới lên Kaggle (Version 1 sạch 100%)
-        print(f"🚀 Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...")
-        report_kernel_state("pushing", f"Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...", None, username)
-        success, push_msg = push_kernel()
-
-        if success:
-            print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' (Version 1) cho '{username}'.")
-            report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp GPU Tesla T4...", push_msg, username)
-
-            # Giám sát 60s
-            got_running, _ = monitor_queue_and_retry(username, new_slug, acc.get("token"), timeout_seconds=60)
-            if got_running:
-                print("=" * 70)
-                sys.exit(0)
-
-            # Nếu sau 60s vẫn QUEUED, xoay sang tài khoản tiếp theo nếu có
-            if len(accounts) > 1 and idx < len(accounts):
-                print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 60s. Xoay sang tài khoản tiếp theo...")
-                continue
-            else:
-                report_kernel_state("queued", f"Notebook '{new_slug}' đang xếp hàng nhận GPU. Frontend sẽ tự kết nối khi GPU sẵn sàng.", None, username)
-                print("=" * 70)
-                sys.exit(0)
-        else:
-            lower_msg = push_msg.lower()
-            if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
-                print(f"⚠️ [CONCURRENT LIMIT] Tài khoản '{username}' bị đầy slot GPU bởi các notebook khác!")
-                if len(accounts) > 1 and idx < len(accounts):
-                    print("🔄 Xoay sang tài khoản tiếp theo...")
-                    report_kernel_state("limit", f"Tài khoản '{username}' đầy 2 slot GPU do các notebook khác. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
+                    report_kernel_state("queued", f"Notebook '{new_slug}' đang xếp hàng nhận GPU. Frontend sẽ tự kết nối khi GPU sẵn sàng.", None, username)
                     continue
-                else:
-                    report_kernel_state("error", f"Tài khoản '{username}' đã đạt giới hạn 2 GPU sessions trên Kaggle (do các notebook huấn luyện hoặc phiên mở trên trình duyệt). Vui lòng Stop session trên kaggle.com hoặc chờ giải phóng slot.", push_msg, username)
-                    sys.exit(1)
-            elif "quota" in lower_msg or "exceeded" in lower_msg or "limit" in lower_msg:
-                print(f"⚠️ [QUOTA EXCEEDED] Kaggle từ chối do hết quota: {push_msg}")
-                report_kernel_state("error", f"Tài khoản '{username}' đã hết hạn mức 30h GPU hàng tuần! Đang chuyển tài khoản...", push_msg, username)
-                continue
             else:
-                print(f"❌ [LỖI PUSH] {push_msg}")
-                report_kernel_state("error", f"Lỗi khởi động kernel cho '{username}': {push_msg[:100]}", push_msg, username)
+                lower_msg = push_msg.lower()
+                if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
+                    print(f"⚠️ [CONCURRENT LIMIT] Tài khoản '{username}' bị đầy slot GPU bởi các notebook khác!")
+                    if len(accounts) > 1 and idx < len(accounts):
+                        print("🔄 Xoay sang tài khoản tiếp theo...")
+                        report_kernel_state("limit", f"Tài khoản '{username}' đầy 2 slot GPU do các notebook khác. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
+                        continue
+                    else:
+                        print("⏳ Đã duyệt hết các tài khoản, sẽ kiểm tra lại ở vòng giám sát kế tiếp...")
 
-    print("\n" + "=" * 70)
-    print("❌ TẤT CẢ TÀI KHOẢN KAGGLE ĐỀU ĐÃ HẾT GIỜ HOẶC GẶP LỖI!")
-    print("Vui lòng thêm tài khoản Kaggle mới vào GitHub Secret 'KAGGLE_ACCOUNTS_JSON'.")
-    report_kernel_state("error", "Tất cả tài khoản Kaggle đều hết quota GPU hoặc gặp sự cố. Vui lòng kiểm tra tài khoản!", None, None)
+        if round_idx < MAX_SUPERVISOR_ROUNDS:
+            print(f"\n⏳ [HẾT VÒNG {round_idx}] Tạm nghỉ 15s trước khi quét vòng kế tiếp...")
+            time.sleep(15)
+
     print("=" * 70)
-    sys.exit(1)
+    print("🏁 [SUPERVISOR KẾT THÚC] Các phiên đang tiếp tục chạy ngầm trên Kaggle.")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

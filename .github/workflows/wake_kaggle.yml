@@ -23,9 +23,9 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Kaggle CLI
+      - name: Install Kaggle CLI & Testing Tools
         run: |
-          pip install --upgrade kaggle
+          pip install --upgrade kaggle gradio_client opencv-python-headless numpy
 
       - name: Smart Low-Quota Rotation & Wake GPU
         env:
