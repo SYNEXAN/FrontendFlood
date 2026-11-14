@@ -315,15 +315,14 @@ def cleanup_stale_kernels(username, current_slug=None):
                     )
                     st_out = (st_proc.stdout + st_proc.stderr).lower()
                     
-                    # 1. Hủy phiên tĩnh cũ hoặc phiên synexan cũ đang kẹt QUEUED
-                    is_legacy_static = kernel_ref.lower().endswith("synexan-flood-backend-gpu")
-                    if (is_legacy_static and "queued" in st_out) or (FORCE_PUSH and ("queued" in st_out or "running" in st_out)):
-                        print(f"   🛑 Đang hủy phiên kẹt hàng đợi/cũ để giải phóng slot GPU: {kernel_ref}")
+                    # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED hoặc cũ để giải phóng slot GPU
+                    if "queued" in st_out or (FORCE_PUSH and "running" in st_out):
+                        print(f"   🛑 Đang hủy phiên synexan cũ kẹt hàng đợi để giải phóng slot GPU: {kernel_ref}")
                         subprocess.run(["kaggle", "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
-                        time.sleep(6) # Đợi Kaggle giải phóng slot trong cụm máy chủ
+                        time.sleep(8) # Đợi Kaggle giải phóng slot trong cụm máy chủ
                         st_out = "cancel_acknowledged"
 
-                    # 2. Xóa các kernel synexan đã kết thúc/lỗi để danh sách luôn sạch
+                    # 2. Xóa các kernel synexan đã kết thúc/lỗi/hủy để danh sách luôn sạch
                     if "complete" in st_out or "error" in st_out or "cancel_acknowledged" in st_out:
                         print(f"   🗑️ Đang xóa kernel synexan đã kết thúc: {kernel_ref}")
                         subprocess.run(["kaggle", "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
@@ -480,7 +479,6 @@ def main():
     print(f"🎯 Ngưỡng an toàn tối thiểu: {MIN_GPU_HOURS_THRESHOLD}h GPU/tuần.")
 
     MAX_SUPERVISOR_ROUNDS = 4
-    busy_accounts = set()
     for round_idx in range(1, MAX_SUPERVISOR_ROUNDS + 1):
         print(f"\n" + "=" * 70)
         print(f"🔄 [VÒNG GIÁM SÁT {round_idx}/{MAX_SUPERVISOR_ROUNDS}] Kiểm tra toàn diện danh sách tài khoản...")
@@ -488,9 +486,6 @@ def main():
 
         for idx, acc in enumerate(accounts, start=1):
             username = acc["username"]
-            if username in busy_accounts and len(busy_accounts) < len(accounts):
-                print(f"⏩ [BỎ QUA] Tài khoản '{username}' đang bận các tác vụ khác (Limit 2 GPU). Bỏ qua để ưu tiên tài khoản trống.")
-                continue
             key = acc["key"]
             masked_key = key[:4] + "****" if len(key) > 4 else "****"
             print(f"\n🔍 [Tài khoản {idx}/{len(accounts)}] Đang kiểm tra: {username} (Key: {masked_key})...")
@@ -579,10 +574,9 @@ def main():
                 lower_msg = push_msg.lower()
                 if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
                     print(f"⚠️ [CONCURRENT LIMIT] Tài khoản '{username}' bị đầy slot GPU bởi các notebook khác!")
-                    busy_accounts.add(username)
+                    report_kernel_state("limit", f"Tài khoản '{username}' đầy 2 slot GPU do các notebook khác. Đang tự động dọn dẹp và xoay vòng...", push_msg, username)
                     if len(accounts) > 1 and idx < len(accounts):
                         print("🔄 Xoay sang tài khoản tiếp theo...")
-                        report_kernel_state("limit", f"Tài khoản '{username}' đầy 2 slot GPU do các notebook khác. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
                         continue
                     else:
                         print("⏳ Đã duyệt hết các tài khoản, sẽ kiểm tra lại ở vòng giám sát kế tiếp...")
