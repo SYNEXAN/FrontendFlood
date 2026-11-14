@@ -12,6 +12,8 @@ import os
 import sys
 import json
 import subprocess
+import ast
+import re
 from pathlib import Path
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
@@ -20,19 +22,44 @@ KERNEL_SLUG = "synexan-flood-backend-gpu"
 
 
 def load_accounts():
-    """Tải danh sách tài khoản từ KAGGLE_ACCOUNTS_JSON hoặc biến môi trường fallback."""
+    """Tải danh sách tài khoản từ KAGGLE_ACCOUNTS_JSON (hỗ trợ nhiều format) hoặc biến môi trường fallback."""
     raw_json = os.environ.get("KAGGLE_ACCOUNTS_JSON", "").strip()
     accounts = []
 
     if raw_json:
+        # 1. Thử parse JSON chuẩn
         try:
             parsed = json.loads(raw_json)
             if isinstance(parsed, list):
                 accounts = parsed
             elif isinstance(parsed, dict):
                 accounts = [parsed]
-        except Exception as e:
-            print(f"⚠️ Không thể parse KAGGLE_ACCOUNTS_JSON: {e}. Thử fallback về biến đơn lẻ...")
+        except Exception:
+            pass
+
+        # 2. Thử parse bằng ast.literal_eval (dành cho single-quote format)
+        if not accounts:
+            try:
+                parsed = ast.literal_eval(raw_json)
+                if isinstance(parsed, list):
+                    accounts = parsed
+                elif isinstance(parsed, dict):
+                    accounts = [parsed]
+            except Exception:
+                pass
+
+        # 3. Thử trích xuất bằng Regex (dành cho unquoted format {username: xxx, key: yyy})
+        if not accounts:
+            matches = re.findall(
+                r'username["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?.*?key["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?',
+                raw_json,
+                re.DOTALL
+            )
+            if matches:
+                accounts = [{"username": u.strip(), "key": k.strip()} for u, k in matches]
+
+        if not accounts:
+            print("⚠️ Không thể trích xuất tài khoản từ KAGGLE_ACCOUNTS_JSON. Thử fallback về biến đơn lẻ...")
 
     if not accounts:
         user = os.environ.get("KAGGLE_USERNAME", "").strip()
