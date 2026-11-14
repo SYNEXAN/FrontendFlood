@@ -449,15 +449,20 @@ def main():
             # QUY TẮC 2: HẾT 2 SLOT GPU (Maximum batch GPU session count reached)
             # -----------------------------------------------------------------
             if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
-                # Kiểm tra xem trong 2 slot đó có backend synexan-flood-backend-gpu đang chạy không
+                # Kiểm tra xem trong 2 slot đó có backend synexan-flood-backend-gpu đang chạy hoặc chờ không
                 check_st, check_msg = get_exact_kernel_status(username)
                 if check_st == "RUNNING":
                     print(f"✅ [QUY TẮC 1] Phát hiện Backend của '{username}' CHÍNH LÀ 1 trong 2 phiên GPU đang chạy!")
                     report_kernel_state("running", f"Notebook backend của '{username}' đang chạy trên GPU. Đang kết nối trực tiếp...", check_msg, username)
                     print("=" * 70)
                     sys.exit(0)
+                elif check_st == "QUEUED":
+                    print(f"⏳ Phát hiện Backend của '{username}' đang nằm trong hàng đợi giữ slot GPU!")
+                    report_kernel_state("queued", f"Backend của '{username}' đang giữ slot trong hàng đợi Kaggle. Đang chờ cấp GPU...", check_msg, username)
+                    print("=" * 70)
+                    sys.exit(0)
 
-                # Nếu 2 slot GPU đó KHÔNG CÓ backend chạy (do các notebook khác chiếm dụng)
+                # Nếu 2 slot GPU đó KHÔNG CÓ backend chạy hoặc chờ (do các notebook khác chiếm dụng)
                 print(f"⚠️ [QUY TẮC 2 - HẾT SLOT GPU] Tài khoản '{username}' hết 2 slot GPU bởi các notebook khác (không có backend chạy)!")
                 if len(accounts) > 1 and idx < len(accounts):
                     print("🔄 Lập tức xoay sang tài khoản dự phòng tiếp theo...")
