@@ -26,7 +26,14 @@ MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0")
 FORCE_PUSH = os.environ.get("FORCE_PUSH", "false").lower() in ("true", "1", "yes")
 KERNEL_SLUG = "synexan-flood-backend-gpu"
 FRONTEND_API_URL = os.environ.get("FRONTEND_API_URL", "https://frontend-flood.vercel.app/api/kernel-log")
-KAGGLE_CMD = [sys.executable, "-m", "kaggle"]
+import shutil
+
+# Khởi tạo lệnh Kaggle CLI an toàn tuyệt đối trên mọi nền tảng (Linux & Windows)
+KAGGLE_BIN = shutil.which("kaggle")
+if KAGGLE_BIN and os.name != "nt":
+    KAGGLE_CMD = [KAGGLE_BIN]
+else:
+    KAGGLE_CMD = [sys.executable, "-c", "from kaggle.cli import main; main()"]
 
 
 def report_kernel_state(status, message, details=None, account=None):
