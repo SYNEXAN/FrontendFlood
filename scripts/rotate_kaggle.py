@@ -297,6 +297,9 @@ def cleanup_stale_kernels(username, current_slug=None):
             timeout=20
         )
         lines = proc.stdout.strip().splitlines()
+        print(f"   📋 [Kernels dateRun top 8 cho {username}]:")
+        for l in lines[:8]:
+            print(f"      {l}")
         for line in lines:
             parts = line.split()
             if len(parts) >= 1 and "/" in parts[0]:
@@ -396,6 +399,7 @@ def push_kernel():
             timeout=45
         )
         combined_output = proc.stdout + proc.stderr
+        print(f"   [Kaggle Push Raw Output]: {combined_output.strip()}")
         lower_out = combined_output.lower()
         is_success = proc.returncode == 0 and ("successfully pushed" in lower_out or "configuration pushed" in lower_out)
         return is_success, combined_output.strip()
