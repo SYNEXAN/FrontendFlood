@@ -147,25 +147,8 @@ def setup_kaggle_credentials(username, key, token=None):
 
 
 def get_remaining_gpu_hours():
-    """Truy vấn quota Kaggle hiện tại bằng CLI 'kaggle quota --format json'."""
-    try:
-        proc = subprocess.run(
-            ["kaggle", "quota", "--format", "json"],
-            capture_output=True,
-            text=True,
-            timeout=25
-        )
-        if proc.returncode != 0:
-            print(f"   [Quota Warning] Lỗi kiểm tra quota: {proc.stderr.strip()[:150]}")
-            return None
-
-        quota_list = json.loads(proc.stdout)
-        for item in quota_list:
-            if item.get("resource", "").upper() == "GPU":
-                rem_str = item.get("remaining", "0h").lower().replace("h", "").strip()
-                return float(rem_str)
-    except Exception as e:
-        print(f"   [Quota Warning] Không thể đọc quota JSON: {e}")
+    """Truy vấn quota Kaggle hiện tại (nếu Kaggle API hỗ trợ)."""
+    # Kaggle CLI hiện tại không cung cấp lệnh `kaggle quota`, trả về None an toàn
     return None
 
 
@@ -252,6 +235,7 @@ def main():
 
         # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp trừ khi FORCE_PUSH)
         is_running, status_msg = check_kernel_running(username)
+        print(f"   [Kernel Status] Trạng thái hiện tại của {username}/{KERNEL_SLUG}: {status_msg}")
         if is_running and not FORCE_PUSH:
             print(f"⚡ [TIẾT KIỆM QUOTA] Kernel của '{username}' ĐANG CHẠY ({status_msg})!")
             print("👉 Giữ nguyên phiên hiện tại, không cần push lại.")
