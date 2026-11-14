@@ -203,6 +203,20 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
         )
         combined = (proc.stdout + proc.stderr).strip()
         lower = combined.lower()
+
+        # Xử lý an toàn khi gặp Kaggle API Rate Limit 429
+        if "429" in lower or "too many requests" in lower:
+            print("   ⚠️ [Rate Limit] Kaggle API 429 Too Many Requests. Tạm nghỉ 8s...")
+            time.sleep(8)
+            proc2 = subprocess.run(
+                ["kaggle", "kernels", "status", target_id],
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
+            combined = (proc2.stdout + proc2.stderr).strip()
+            lower = combined.lower()
+
         if "kernelworkerstatus.running" in lower or '"running"' in lower:
             return "RUNNING", combined
         elif "kernelworkerstatus.queued" in lower or '"queued"' in lower:
@@ -294,8 +308,10 @@ def check_all_account_kernels(username):
 
 def cleanup_stale_kernels(username, current_slug=None):
     """
-    Tự động dọn dẹp các notebook synexan-flood-* cũ đã ERROR, COMPLETE hoặc CANCEL_ACKNOWLEDGED.
-    TUYỆT ĐỐI KHÔNG XÓA KERNEL ĐANG RUNNING HOẶC QUEUED!
+    Tự động dọn dẹp các notebook synexan-flood-* cũ.
+    - Xóa các kernel đã COMPLETE, ERROR, hoặc CANCEL_ACKNOWLEDGED.
+    - Hủy bỏ các phiên tĩnh cũ synexan-flood-backend-gpu đang bị kẹt QUEUED vô hạn gây chiếm slot 2 GPU.
+    - Nếu FORCE_PUSH=True, hủy mọi phiên synexan cũ để giải phóng ngay slot GPU cho notebook mới toanh.
     """
     print(f"🧹 [Auto-Cleanup] Đang quét và dọn dẹp các notebook synexan-flood cũ của '{username}'...")
     try:
@@ -320,7 +336,16 @@ def cleanup_stale_kernels(username, current_slug=None):
                         timeout=10
                     )
                     st_out = (st_proc.stdout + st_proc.stderr).lower()
-                    # CHỈ XÓA KHI ĐÃ COMPLETE, ERROR HOẶC CANCEL_ACKNOWLEDGED
+                    
+                    # 1. Hủy phiên tĩnh cũ synexan-flood-backend-gpu hoặc phiên synexan cũ khi FORCE_PUSH
+                    is_legacy_static = kernel_ref.lower().endswith("synexan-flood-backend-gpu")
+                    if (is_legacy_static and "queued" in st_out) or (FORCE_PUSH and ("queued" in st_out or "running" in st_out)):
+                        print(f"   🛑 Đang hủy phiên kẹt hàng đợi/cũ để giải phóng GPU: {kernel_ref}")
+                        subprocess.run(["kaggle", "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
+                        time.sleep(2)
+                        st_out = "cancel_acknowledged"
+
+                    # 2. Xóa các kernel đã kết thúc/lỗi để danh sách luôn gọn gàng
                     if "complete" in st_out or "error" in st_out or "cancel_acknowledged" in st_out:
                         print(f"   🗑️ Đang xóa kernel đã kết thúc/lỗi: {kernel_ref}")
                         subprocess.run(["kaggle", "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
@@ -336,7 +361,7 @@ def monitor_queue_and_retry(username, slug, token=None, timeout_seconds=60):
     """
     target_id = f"{username}/{slug}"
     print(f"⏳ Giám sát hàng đợi của '{target_id}' trong tối đa {timeout_seconds}s...")
-    poll_interval = 6
+    poll_interval = 12
     elapsed = 0
 
     while elapsed < timeout_seconds:
@@ -435,41 +460,43 @@ def main():
                 continue
 
         # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
-        active_ref, active_status, active_msg = find_active_backend(username)
+        if not FORCE_PUSH:
+            active_ref, active_status, active_msg = find_active_backend(username)
 
-        if active_status == "RUNNING":
-            print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
-            # In thử 20 dòng log mới nhất của kernel đang chạy để kiểm tra
-            try:
-                log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
-                print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
-            except Exception as le:
-                print(f"   [Logs error]: {le}")
-            print("👉 Giữ nguyên phiên đang chạy, kết nối trực tiếp không cần khởi động lại.")
-            report_kernel_state("running", f"Máy chủ GPU '{active_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", active_msg, username)
-            print("=" * 70)
-            sys.exit(0)
-
-        if active_status == "QUEUED":
-            active_slug = active_ref.split("/")[-1]
-            print(f"⏳ [PHÁT HIỆN HÀNG ĐỢI SẴN CÓ] Notebook '{active_ref}' đã ở trong hàng đợi Kaggle cấp GPU!")
-            print("👉 Tuyệt đối không đẩy thêm notebook mới để tránh lỗi quá tải 2 GPU sessions.")
-            report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi Kaggle cấp GPU. Đang theo dõi...", active_msg, username)
-
-            got_running, _ = monitor_queue_and_retry(username, active_slug, acc.get("token"), timeout_seconds=60)
-            if got_running:
+            if active_status == "RUNNING":
+                print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
+                try:
+                    log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
+                    print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
+                except Exception as le:
+                    print(f"   [Logs error]: {le}")
+                print("👉 Giữ nguyên phiên đang chạy, kết nối trực tiếp không cần khởi động lại.")
+                report_kernel_state("running", f"Máy chủ GPU '{active_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", active_msg, username)
                 print("=" * 70)
                 sys.exit(0)
 
-            # Nếu sau 60s vẫn QUEUED:
-            if len(accounts) > 1 and idx < len(accounts):
-                print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 60s. Kiểm tra tài khoản tiếp theo...")
-                continue
-            else:
-                print(f"⏳ Notebook '{active_ref}' tiếp tục xếp hàng trên Kaggle. Frontend sẽ tự kết nối khi GPU khởi động.")
-                report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi cấp GPU của Kaggle. Vui lòng chờ trong giây lát, backend sẽ tự động sẵn sàng.", None, username)
-                print("=" * 70)
-                sys.exit(0)
+            if active_status == "QUEUED":
+                active_slug = active_ref.split("/")[-1]
+                print(f"⏳ [PHÁT HIỆN HÀNG ĐỢI SẴN CÓ] Notebook '{active_ref}' đã ở trong hàng đợi Kaggle cấp GPU!")
+                print("👉 Tuyệt đối không đẩy thêm notebook mới để tránh lỗi quá tải 2 GPU sessions.")
+                report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi Kaggle cấp GPU. Đang theo dõi...", active_msg, username)
+
+                got_running, _ = monitor_queue_and_retry(username, active_slug, acc.get("token"), timeout_seconds=60)
+                if got_running:
+                    print("=" * 70)
+                    sys.exit(0)
+
+                # Nếu sau 60s vẫn QUEUED:
+                if len(accounts) > 1 and idx < len(accounts):
+                    print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 60s. Kiểm tra tài khoản tiếp theo...")
+                    continue
+                else:
+                    print(f"⏳ Notebook '{active_ref}' tiếp tục xếp hàng trên Kaggle. Frontend sẽ tự kết nối khi GPU khởi động.")
+                    report_kernel_state("queued", f"Notebook '{active_slug}' đang trong hàng đợi cấp GPU của Kaggle. Vui lòng chờ trong giây lát, backend sẽ tự động sẵn sàng.", None, username)
+                    print("=" * 70)
+                    sys.exit(0)
+        else:
+            print(f"⚡ [FORCE_PUSH] Bắt buộc đẩy Notebook mới, dọn dẹp các phiên cũ của '{username}'...")
 
         # 3. Không có notebook nào đang chạy hoặc chờ -> Khởi tạo Notebook Mới Toanh
         new_slug = generate_unique_slug()
