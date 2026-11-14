@@ -235,11 +235,11 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
 def find_active_backend(username):
     """
     Kiểm tra xem có bất kỳ notebook synexan-flood-* nào của username đang RUNNING hoặc QUEUED hay không.
-    Sử dụng 'kaggle kernels list --mine' không dùng --search để tránh độ trễ Elasticsearch của Kaggle.
+    Sử dụng '--sort-by dateRun' để luôn quét các notebook mới nhất vừa chạy hôm nay.
     """
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--page-size", "25"],
+            ["kaggle", "kernels", "list", "--mine", "--sort-by", "dateRun", "--page-size", "30"],
             capture_output=True,
             text=True,
             timeout=20
@@ -286,15 +286,15 @@ def find_active_backend(username):
 def cleanup_stale_kernels(username, current_slug=None):
     """
     Tự động dọn dẹp các notebook synexan-flood-* cũ của username.
-    Chỉ kiểm tra và thao tác trên đúng các kernel synexan-flood để KHÔNG BAO GIỜ bị quá tải Kaggle API rate limit (429).
+    Sử dụng '--sort-by dateRun' để phát hiện chính xác các phiên vừa chạy/chờ hôm nay.
     """
-    print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan-flood cũ của '{username}'...")
+    print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan-flood cũ của '{username}' (sort-by dateRun)...")
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--page-size", "25"],
+            ["kaggle", "kernels", "list", "--mine", "--sort-by", "dateRun", "--page-size", "30"],
             capture_output=True,
             text=True,
-            timeout=15
+            timeout=20
         )
         lines = proc.stdout.strip().splitlines()
         for line in lines:
