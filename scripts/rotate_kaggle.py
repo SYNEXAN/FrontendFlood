@@ -14,6 +14,8 @@ import json
 import subprocess
 import ast
 import re
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
@@ -21,8 +23,31 @@ MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0")
 KERNEL_SLUG = "synexan-flood-backend-gpu"
 
 
+def resolve_username_from_token(token):
+    """Tự động nhận diện username từ Kaggle API khi người dùng chỉ cung cấp Token (KGAT_...)."""
+    try:
+        url = "https://api.kaggle.com/v1/kernels.KernelsApiService/ListKernels"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"group": "PROFILE", "pageSize": 5}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data and isinstance(data.get("kernels"), list) and len(data["kernels"]) > 0:
+                ref = data["kernels"][0].get("ref", "")
+                if "/" in ref:
+                    return ref.split("/")[0]
+    except Exception as e:
+        print(f"   [Auto-Username] Không thể tự nhận diện username từ Token: {e}")
+    return None
+
+
 def load_accounts():
-    """Tải danh sách tài khoản từ KAGGLE_ACCOUNTS_JSON (hỗ trợ nhiều format) hoặc biến môi trường fallback."""
+    """Tải danh sách tài khoản từ KAGGLE_ACCOUNTS_JSON (hỗ trợ file json, token KGAT, hoặc key đơn lẻ)."""
     raw_json = os.environ.get("KAGGLE_ACCOUNTS_JSON", "").strip()
     accounts = []
 
@@ -34,10 +59,12 @@ def load_accounts():
                 accounts = parsed
             elif isinstance(parsed, dict):
                 accounts = [parsed]
+            elif isinstance(parsed, str):
+                accounts = [{"token": parsed}]
         except Exception:
             pass
 
-        # 2. Thử parse bằng ast.literal_eval (dành cho single-quote format)
+        # 2. Thử parse bằng ast.literal_eval
         if not accounts:
             try:
                 parsed = ast.literal_eval(raw_json)
@@ -48,7 +75,13 @@ def load_accounts():
             except Exception:
                 pass
 
-        # 3. Thử trích xuất bằng Regex (dành cho unquoted format {username: xxx, key: yyy})
+        # 3. Thử trích xuất Token KGAT_... đơn lẻ hoặc danh sách
+        if not accounts:
+            kgat_tokens = re.findall(r'KGAT_[a-zA-Z0-9_\-]+', raw_json)
+            if kgat_tokens:
+                accounts = [{"token": tok} for tok in kgat_tokens]
+
+        # 4. Thử trích xuất {username: xxx, key: yyy} bằng Regex
         if not accounts:
             matches = re.findall(
                 r'username["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?.*?key["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?',
@@ -58,25 +91,49 @@ def load_accounts():
             if matches:
                 accounts = [{"username": u.strip(), "key": k.strip()} for u, k in matches]
 
-        if not accounts:
-            print("⚠️ Không thể trích xuất tài khoản từ KAGGLE_ACCOUNTS_JSON. Thử fallback về biến đơn lẻ...")
-
     if not accounts:
         user = os.environ.get("KAGGLE_USERNAME", "").strip()
         key = os.environ.get("KAGGLE_KEY", "").strip()
         if user and key:
             accounts = [{"username": user, "key": key}]
 
-    return [acc for acc in accounts if acc.get("username") and acc.get("key")]
+    # Xử lý tự động phát hiện Username nếu người dùng chỉ cung cấp Key / Token
+    resolved = []
+    for item in accounts:
+        if isinstance(item, str):
+            item = {"token": item} if item.startswith("KGAT_") else {"key": item}
+
+        u = item.get("username", "").strip()
+        k = item.get("key", "").strip()
+        tok = item.get("token", "").strip() or (k if k.startswith("KGAT_") else "")
+
+        if not u and tok:
+            print(f"ℹ️ Phát hiện Token không có Username. Đang tự động nhận diện username từ Kaggle API...")
+            discovered_user = resolve_username_from_token(tok)
+            if discovered_user:
+                print(f"✅ Đã tự động nhận diện Username: {discovered_user}")
+                u = discovered_user
+
+        if u and (k or tok):
+            resolved.append({"username": u, "key": k or tok, "token": tok})
+
+    return resolved
 
 
-def setup_kaggle_credentials(username, key):
+def setup_kaggle_credentials(username, key, token=None):
     """Cấu hình credentials vào ~/.kaggle/kaggle.json an toàn."""
     kaggle_dir = Path.home() / ".kaggle"
     kaggle_dir.mkdir(parents=True, exist_ok=True)
     kaggle_file = kaggle_dir / "kaggle.json"
 
-    data = {"username": username, "key": key}
+    data = {"username": username}
+    if token:
+        data["token"] = token
+        os.environ["KAGGLE_API_TOKEN"] = token
+    if key:
+        data["key"] = key
+        os.environ["KAGGLE_KEY"] = key
+
     with open(kaggle_file, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
@@ -86,7 +143,6 @@ def setup_kaggle_credentials(username, key):
         pass
 
     os.environ["KAGGLE_USERNAME"] = username
-    os.environ["KAGGLE_KEY"] = key
 
 
 def get_remaining_gpu_hours():
@@ -191,7 +247,7 @@ def main():
         print(f"\n🔍 [Tài khoản {idx}/{len(accounts)}] Đang kiểm tra: {username} (Key: {masked_key})...")
 
         # 1. Cấu hình credentials
-        setup_kaggle_credentials(username, key)
+        setup_kaggle_credentials(username, key, acc.get("token"))
 
         # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp)
         is_running, status_msg = check_kernel_running(username)
