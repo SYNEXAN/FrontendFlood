@@ -163,7 +163,8 @@ def push_kernel():
             timeout=45
         )
         combined_output = proc.stdout + proc.stderr
-        is_success = proc.returncode == 0 and "Kernel configuration pushed" in combined_output
+        lower_out = combined_output.lower()
+        is_success = proc.returncode == 0 and ("successfully pushed" in lower_out or "configuration pushed" in lower_out)
         return is_success, combined_output.strip()
     except Exception as e:
         return False, str(e)
