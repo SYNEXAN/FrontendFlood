@@ -830,6 +830,81 @@
       }
     }
 
+    // Theo dõi tiến trình thực thi của máy chủ và phát hiện khi mở cổng dịch vụ
+    function startMonitorExecution() {
+      if (monitorTimer) clearInterval(monitorTimer);
+      let seconds = 0;
+      const MAX_WAIT_SECONDS = 300; // 5 phút
+
+      monitorTimer = setInterval(async () => {
+        seconds += 3;
+
+        if (seconds >= 15 && seconds < 45) {
+          updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
+          updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
+        } else if (seconds >= 45) {
+          updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
+          updateStep(4, "running", `4. Đang kết nối Cloudflare Tunnel (${seconds}s)...`);
+        }
+
+        // 1. Liên tục cập nhật URL Backend mới nhất từ Upstash Redis
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            }
+          }
+        } catch (e) {}
+
+        // 2. Kiểm tra trực tiếp tính khả dụng của Backend URL
+        const currentConfig = getConfig();
+        if (currentConfig.backendUrl && currentConfig.backendUrl.startsWith("http")) {
+          try {
+            const pingUrl = `/api/status?target=${encodeURIComponent(currentConfig.backendUrl)}`;
+            const pRes = await fetch(pingUrl, { cache: "no-store" });
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              if (pData.online) {
+                clearInterval(monitorTimer);
+                updateStep(4, "done", "4. Kết nối Cloudflare Tunnel thành công!");
+                updateStatusUI("online", `🟢 Backend GPU: Online (${pData.latencyMs || 0}ms)`);
+
+                overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
+                showToast("GPU AI đã online! Đang mở giao diện...", "success");
+
+                frame.src = currentConfig.backendUrl;
+
+                setTimeout(() => {
+                  hideOverlay();
+                  isExecutingKernel = false;
+                  btnConnectApiTop.disabled = false;
+                  btnConnectApiOverlay.disabled = false;
+                  btnConnectApiTopText.textContent = "Chạy lại Model";
+                  btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
+                  if (cmdBadgeWrapper) cmdBadgeWrapper.style.display = "flex";
+                }, 800);
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (seconds >= MAX_WAIT_SECONDS) {
+          clearInterval(monitorTimer);
+          isExecutingKernel = false;
+          btnConnectApiTop.disabled = false;
+          btnConnectApiOverlay.disabled = false;
+          btnConnectApiTopText.textContent = "Thử lại GPU";
+          btnConnectApiOverlayText.textContent = "KẾT NỐI LẠI GPU";
+          updateStep(4, "error", "4. Quá thời gian chờ (5 phút). Vui lòng thử lại.");
+          cmdBadgeWrapper.style.display = "flex";
+          showToast("Quá thời gian kết nối. Vui lòng thử lại.", "error");
+        }
+      }, 3000);
+    }
+
     // ========================================================================
     // SỰ KIỆN GIAO DIỆN
     // ========================================================================
