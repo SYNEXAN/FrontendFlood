@@ -255,7 +255,10 @@ def main():
             print("=" * 70)
             sys.exit(0)
         elif is_running and FORCE_PUSH:
-            print(f"⚠️ [FORCE PUSH] Kernel của '{username}' đang chạy ({status_msg}) nhưng FORCE_PUSH được kích hoạt. Đang đẩy code mới...")
+            if len(accounts) > 1 and "queued" in status_msg.lower() and idx == 1:
+                print(f"🔄 [QUEUE ROTATE] Hàng đợi của '{username}' bị nghẽn ({status_msg}). Tự động xoay sang tài khoản dự phòng tiếp theo...")
+                continue
+            print(f"⚠️ [FORCE PUSH] Kernel của '{username}' đang chạy ({status_msg}) nhưng FORCE_PUSH được kích hoạt. Đang hủy hàng đợi & đẩy lại phiên mới...")
 
         # 3. Kiểm tra quota còn lại
         remaining_hours = get_remaining_gpu_hours()

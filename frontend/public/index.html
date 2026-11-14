@@ -634,10 +634,6 @@
           window.wakeGpuConfigured = !!cfg.wakeGpuConfigured;
           if (cfg.defaultBackendUrl) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
-            const currentConfig = getConfig();
-            if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
-              frame.src = currentConfig.backendUrl;
-            }
           }
         }
       })
@@ -834,6 +830,7 @@
     function startMonitorExecution() {
       if (monitorTimer) clearInterval(monitorTimer);
       let seconds = 0;
+      let hasRetriedQueue = false;
       const MAX_WAIT_SECONDS = 300; // 5 phút
 
       monitorTimer = setInterval(async () => {
@@ -842,9 +839,21 @@
         if (seconds >= 15 && seconds < 45) {
           updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
           updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
-        } else if (seconds >= 45) {
+        } else if (seconds >= 45 && seconds < 90) {
           updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
           updateStep(4, "running", `4. Đang kết nối Cloudflare Tunnel (${seconds}s)...`);
+        }
+
+        // Tự động phá nghẽn nếu hàng đợi Kaggle bị kẹt quá 90s (~1.5 phút)
+        if (seconds >= 90 && !hasRetriedQueue) {
+          hasRetriedQueue = true;
+          updateStep(2, "running", "2. Hàng đợi Kaggle bị nghẽn (> 1.5 phút). Đang ngắt & kích hoạt lại...");
+          showToast("Hàng đợi Kaggle bị nghẽn. Đang tự động ngắt và kích hoạt lại...", "info");
+          fetch("/api/wake-gpu", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ force: true })
+          }).catch(() => {});
         }
 
         // 1. Liên tục cập nhật URL Backend mới nhất từ Upstash Redis

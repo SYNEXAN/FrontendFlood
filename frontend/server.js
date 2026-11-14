@@ -166,6 +166,11 @@ app.post('/api/wake-gpu', async (req, res) => {
             });
         }
 
+        const isForce = !!(req.body && (req.body.force === true || req.body.force === 'true'));
+        if (isForce) {
+            console.log('[INFO] ⚡ Force restart requested by client (breaking queue stall).');
+        }
+
         const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {
             method: 'POST',
             headers: {
@@ -176,7 +181,10 @@ app.post('/api/wake-gpu', async (req, res) => {
             },
             body: JSON.stringify({
                 event_type: 'wake-kaggle',
-                client_payload: { triggered_by: 'vercel_web' }
+                client_payload: {
+                    triggered_by: 'vercel_web',
+                    force: isForce ? 'true' : 'false'
+                }
             })
         });
 
