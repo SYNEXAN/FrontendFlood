@@ -683,11 +683,14 @@
     fetch("/api/config")
       .then(res => res.json())
       .then(cfg => {
-        if (cfg && cfg.defaultBackendUrl) {
-          DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
-          const currentConfig = getConfig();
-          if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
-            frame.src = currentConfig.backendUrl;
+        if (cfg) {
+          window.wakeGpuConfigured = !!cfg.wakeGpuConfigured;
+          if (cfg.defaultBackendUrl) {
+            DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            const currentConfig = getConfig();
+            if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
+              frame.src = currentConfig.backendUrl;
+            }
           }
         }
       })
@@ -846,6 +849,50 @@
     }
 
     // ========================================================================
+    // TỰ ĐỘNG KÍCH HOẠT GPU KHÔNG LỘ KEY (ZERO-LEAK GITHUB ACTIONS)
+    // ========================================================================
+    async function triggerZeroLeakWake() {
+      if (isExecutingKernel) return;
+      isExecutingKernel = true;
+      btnConnectApiTop.disabled = true;
+      btnConnectApiOverlay.disabled = true;
+      btnConnectApiTopText.textContent = "Đang kích hoạt...";
+      btnConnectApiOverlayText.textContent = "ĐANG KẾT NỐI GPU KAGGLE...";
+
+      showOverlay();
+      stepsContainer.style.display = "block";
+      cmdBadgeWrapper.style.display = "none";
+      overlaySubText.textContent = "Đang gửi yêu cầu kích hoạt GPU đến GitHub Actions (Zero-Leak)...";
+
+      updateStep(1, "running", "1. Đang kích hoạt GitHub Actions...");
+      updateStep(2, "", "2. Hệ thống kiểm tra Quota và tự động xoay tài khoản...");
+      updateStep(3, "", "3. Khởi động GPU Tesla T4 & nạp mô hình AI...");
+      updateStep(4, "", "4. Thiết lập đường hầm Cloudflare & kết nối...");
+      updateStatusUI("running", "Đang gửi lệnh GPU...");
+
+      try {
+        const res = await fetch("/api/wake-gpu", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Không thể kích hoạt GitHub Actions");
+        }
+        updateStep(1, "done", "1. Đã gửi tín hiệu khởi động thành công!");
+        updateStep(2, "running", "2. Đang kiểm tra quota & cấp phát GPU Tesla T4...");
+        showToast("Đã kích hoạt GPU tự động! Đang chờ khởi động...", "success");
+        startMonitorExecution();
+      } catch (err) {
+        isExecutingKernel = false;
+        btnConnectApiTop.disabled = false;
+        btnConnectApiOverlay.disabled = false;
+        btnConnectApiTopText.textContent = "Kích hoạt GPU Kaggle";
+        btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
+        updateStep(1, "error", `1. Lỗi: ${err.message}`);
+        updateStatusUI("offline", "Kích hoạt thất bại");
+        showToast(`Lỗi: ${err.message}`, "error");
+      }
+    }
+
+    // ========================================================================
     // GỌI KHỞI ĐỘNG VÀ KÍCH HOẠT GPU TỰ ĐỘNG
     // ========================================================================
     async function startKaggleNotebookExecution(forcedAuth) {
@@ -857,6 +904,9 @@
       const config = getConfig();
       const authToUse = forcedAuth || config.auth;
       if (!authToUse) {
+        if (window.wakeGpuConfigured) {
+          return triggerZeroLeakWake();
+        }
         showToast("Vui lòng nhập Token hoặc dán file kaggle.json trước!", "error");
         openSettingsModal();
         return;

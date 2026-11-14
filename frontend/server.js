@@ -99,7 +99,8 @@ app.get('/api/config', async (req, res) => {
     const liveUrl = await getStoredBackendUrl();
     res.json({
         defaultBackendUrl: liveUrl,
-        kaggleConfigured: !!(process.env.KAGGLE_USERNAME && process.env.KAGGLE_KEY)
+        kaggleConfigured: !!(process.env.KAGGLE_USERNAME && process.env.KAGGLE_KEY),
+        wakeGpuConfigured: !!(process.env.GH_PAT || process.env.GITHUB_TOKEN)
     });
 });
 
@@ -366,6 +367,50 @@ app.post('/api/kaggle-status', async (req, res) => {
         });
     } catch (err) {
         return res.status(500).json({ error: err.message });
+    }
+});
+
+// Endpoint bảo mật kích hoạt GitHub Actions tự động xoay vòng & khởi động GPU Kaggle
+app.post('/api/wake-gpu', async (req, res) => {
+    try {
+        const ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
+        const ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
+
+        if (!ghToken) {
+            return res.status(503).json({
+                success: false,
+                error: 'Chưa cấu hình GH_PAT trên Environment Variables để kích hoạt GitHub Actions tự động.'
+            });
+        }
+
+        const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': `Bearer ${ghToken}`,
+                'User-Agent': 'FrontendFlood-Vercel-Serverless',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                event_type: 'wake-kaggle',
+                client_payload: { triggered_by: 'vercel_web' }
+            })
+        });
+
+        if (ghRes.status === 204 || ghRes.ok) {
+            return res.json({
+                success: true,
+                message: 'Đã gửi tín hiệu kích hoạt GPU Backend đến GitHub Actions thành công! Hệ thống đang tự động kiểm tra quota và khởi động GPU.'
+            });
+        } else {
+            const errBody = await ghRes.text();
+            return res.status(ghRes.status).json({
+                success: false,
+                error: `GitHub API trả về mã ${ghRes.status}: ${errBody}`
+            });
+        }
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
     }
 });
 
