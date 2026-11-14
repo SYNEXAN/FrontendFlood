@@ -1,7 +1,8 @@
-
 frontend/node_modules/
 node_modules/
 frontend/package-lock.json
 
 __pycache__/
 *.pyc
+.env
+.env.local

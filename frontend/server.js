@@ -141,8 +141,23 @@ app.get('/api/status', async (req, res) => {
 // Endpoint bảo mật kích hoạt GitHub Actions tự động xoay vòng & khởi động GPU Kaggle
 app.post('/api/wake-gpu', async (req, res) => {
     try {
-        const ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
-        const ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
+        let ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
+        let ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
+
+        // Tự động nạp từ file .env cục bộ nếu chạy dưới máy dev
+        if (!ghToken) {
+            const envPaths = [path.join(__dirname, '..', '.env'), path.join(__dirname, '.env')];
+            for (const ep of envPaths) {
+                if (fs.existsSync(ep)) {
+                    const envContent = fs.readFileSync(ep, 'utf8');
+                    const matchPat = envContent.match(/GH_PAT\s*=\s*([^\r\n]+)/);
+                    if (matchPat) ghToken = matchPat[1].trim();
+                    const matchRepo = envContent.match(/GITHUB_REPOSITORY\s*=\s*([^\r\n]+)/);
+                    if (matchRepo) ghRepo = matchRepo[1].trim();
+                    if (ghToken) break;
+                }
+            }
+        }
 
         if (!ghToken) {
             return res.status(503).json({
