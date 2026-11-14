@@ -559,11 +559,6 @@
     <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
       <i class="fa-solid fa-arrows-rotate"></i>
     </button>
-
-    <!-- Nút Cài đặt API -->
-    <button id="btnOpenSettings" class="btn-icon-only" title="Cấu hình API Model & Endpoint URL">
-      <i class="fa-solid fa-gear"></i>
-    </button>
   </div>
 
   <!-- 100% Direct Gradio Interface Embed (No Interstitial Overlay) -->
@@ -611,47 +606,6 @@
     title="AI Urban Flood & Traffic Congestion Monitor">
   </iframe>
 
-  <!-- MODAL: KÍCH HOẠT GPU KAGGLE MIỄN PHÍ -->
-  <div id="settings-modal">
-    <div class="modal-box">
-      <div class="modal-header">
-        <div class="modal-title">
-          <i class="fa-solid fa-bolt" style="color: #3b82f6;"></i> Kích Hoạt GPU Kaggle Miễn Phí
-        </div>
-        <button id="btnCloseSettings" class="btn-close-modal">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <div style="font-size: 13px; color: #94a3b8; margin-bottom: 14px; line-height: 1.4;">
-        💡 GPU Tesla T4 (30h/tuần). Tự tắt sau 15p rời web để bảo toàn quota, tự khởi động lại khi vào lại web.
-      </div>
-
-      <div class="form-group">
-        <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>Kaggle Token hoặc nội dung file kaggle.json</span>
-          <label for="fileKaggleJson" style="cursor: pointer; color: #38bdf8; font-size: 12px; font-weight: 500; text-decoration: underline;">
-            <i class="fa-solid fa-file-arrow-up"></i> Chọn file kaggle.json
-          </label>
-        </label>
-        <input type="file" id="fileKaggleJson" accept=".json" style="display: none;">
-        <textarea id="inputSmartKey" class="form-input" rows="3" style="resize: vertical; font-family: monospace; font-size: 13px; padding: 10px; -webkit-text-security: disc;" placeholder="••••••••••••••••••••••••••••••••••••••••"></textarea>
-        <div class="form-tip" style="margin-top: 6px;">
-          Lấy Token tại: <b>Kaggle.com</b> &rarr; <b>Settings</b> &rarr; Bấm <b>"Create New Token"</b> (tải file .json) hoặc <b>"Create New Personal Access Token"</b>.
-        </div>
-      </div>
-
-      <div class="modal-actions" style="margin-top: 18px; display: flex; gap: 8px;">
-        <button id="btnTestKaggleApi" class="btn-secondary" style="flex: 1; min-width: 110px; padding: 10px 8px; font-size: 13px;">
-          <i class="fa-solid fa-plug"></i> Kiểm Tra
-        </button>
-        <button id="btnAutoStartGpu" class="btn-primary" style="flex: 1.8; min-width: 145px; background: linear-gradient(135deg, #2563eb, #1d4ed8); font-weight: 600; padding: 10px 10px; font-size: 13px;">
-          <i class="fa-solid fa-rocket"></i> Kích Hoạt GPU
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- TOAST NOTIFICATION -->
   <div id="toast-msg">
     <i class="fa-solid fa-circle-info" id="toastIcon"></i>
@@ -660,22 +614,15 @@
 
   <script>
     // ========================================================================
-    // CẤU HÌNH MẶC ĐỊNH & LƯU TRỮ
+    // CẤU HÌNH MẶC ĐỊNH (ZERO-LEAK BẢO MẬT 100%)
     // ========================================================================
     const DEFAULT_CONFIG = {
-      defaultAuth: '{"username":"jtachitv","key":"2d113c94b6cee76f0b4c31596be9e53a"}',
       backendUrl: ""
     };
 
     function getConfig() {
-      let savedUrl = localStorage.getItem("flood_backend_url");
-      if (savedUrl && DEFAULT_CONFIG.backendUrl && savedUrl !== DEFAULT_CONFIG.backendUrl) {
-        localStorage.removeItem("flood_backend_url");
-        savedUrl = DEFAULT_CONFIG.backendUrl;
-      }
       return {
-        auth: localStorage.getItem("flood_kaggle_auth") || DEFAULT_CONFIG.defaultAuth,
-        backendUrl: savedUrl || DEFAULT_CONFIG.backendUrl
+        backendUrl: DEFAULT_CONFIG.backendUrl
       };
     }
 
@@ -709,7 +656,6 @@
     const btnConnectApiTop = document.getElementById("btnConnectApiTop") || document.createElement("button");
     const btnConnectApiTopText = document.getElementById("btnConnectApiTopText") || document.createElement("span");
     const btnReloadFrame = document.getElementById("btnReloadFrame");
-    const btnOpenSettings = document.getElementById("btnOpenSettings");
     const btnStatusPill = document.getElementById("btnStatusPill");
 
     // Overlay Elements
@@ -717,14 +663,6 @@
     const btnConnectApiOverlayText = document.getElementById("btnConnectApiOverlayText") || document.createElement("span");
     const stepsContainer = document.getElementById("stepsContainer");
     const cmdBadgeWrapper = document.getElementById("cmdBadgeWrapper");
-
-    // Modal Settings
-    const settingsModal = document.getElementById("settings-modal");
-    const btnCloseSettings = document.getElementById("btnCloseSettings");
-    const btnTestKaggleApi = document.getElementById("btnTestKaggleApi");
-    const btnAutoStartGpu = document.getElementById("btnAutoStartGpu");
-    const inputSmartKey = document.getElementById("inputSmartKey");
-    const fileKaggleJson = document.getElementById("fileKaggleJson");
 
     // Toast
     const toastMsg = document.getElementById("toast-msg");
@@ -893,245 +831,10 @@
     }
 
     // ========================================================================
-    // GỌI KHỞI ĐỘNG VÀ KÍCH HOẠT GPU TỰ ĐỘNG
-    // ========================================================================
-    async function startKaggleNotebookExecution(forcedAuth) {
-      if (isExecutingKernel) {
-        showToast("Hệ thống đang tiến hành kích hoạt GPU Kaggle...", "info");
-        return;
-      }
-
-      const config = getConfig();
-      const authToUse = forcedAuth || config.auth;
-      if (!authToUse) {
-        if (window.wakeGpuConfigured) {
-          return triggerZeroLeakWake();
-        }
-        showToast("Vui lòng nhập Token hoặc dán file kaggle.json trước!", "error");
-        openSettingsModal();
-        return;
-      }
-
-      isExecutingKernel = true;
-      btnConnectApiTop.disabled = true;
-      btnConnectApiOverlay.disabled = true;
-      btnConnectApiTopText.textContent = "Đang kích hoạt...";
-      btnConnectApiOverlayText.textContent = "ĐANG KẾT NỐI GPU KAGGLE...";
-
-      showOverlay();
-      stepsContainer.style.display = "block";
-      cmdBadgeWrapper.style.display = "none";
-      overlaySubText.textContent = "Đang khởi tạo phiên làm việc GPU Tesla T4 trên Kaggle...";
-
-      updateStep(1, "running", "1. Đang gửi yêu cầu kích hoạt GPU lên Kaggle...");
-      updateStep(2, "", "2. Cấp phát tài nguyên GPU Tesla T4...");
-      updateStep(3, "", "3. Nạp mã nguồn và mô hình AI...");
-      updateStep(4, "", "4. Thiết lập đường hầm Cloudflare & kết nối...");
-      updateStatusUI("running", "Đang gửi lệnh GPU...");
-
-      try {
-        const res = await fetch("/api/kaggle-auto-run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ authInput: authToUse })
-        });
-
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          throw new Error(data.error || `Lỗi máy chủ HTTP ${res.status}`);
-        }
-
-        const username = data.username || "Kaggle";
-        const ver = data.versionNumber || "mới";
-
-        if (data.alreadyRunning) {
-          updateStep(1, "done", `1. GPU Tesla T4 đang chạy sẵn sàng!`);
-          updateStep(2, "done", "2. Đã phân bổ GPU Tesla T4 thành công!");
-          updateStep(3, "running", "3. Đang đồng bộ mô hình AI & kết nối Cloudflare...");
-          updateStatusUI("running", "Đang kết nối GPU Tesla T4...");
-          showToast("Phát hiện GPU đang chạy sẵn sàng!", "info");
-        } else if (data.alreadyQueued) {
-          updateStep(1, "done", `1. Notebook đang xếp hàng tài nguyên GPU...`);
-          updateStep(2, "running", "2. Đang chờ phân bổ GPU Tesla T4...");
-          updateStatusUI("running", "Đang chờ cấp phát GPU...");
-          showToast("Notebook đang xếp hàng tài nguyên GPU!", "info");
-        } else {
-          updateStep(1, "done", `1. Đã khởi tạo notebook GPU thành công (Phiên bản #${ver})!`);
-          updateStep(2, "running", "2. Đang phân bổ GPU Tesla T4 và khởi động dịch vụ...");
-          updateStatusUI("running", "GPU Tesla T4 đang nạp mô hình...");
-          showToast("Đã kích hoạt GPU Tesla T4 thành công!", "success");
-        }
-
-        // Bắt đầu theo dõi backend cho đến khi online
-        startMonitorExecution();
-
-      } catch (err) {
-        console.error("Lỗi kích hoạt GPU Kaggle:", err);
-        updateStep(1, "error", `1. Lỗi: ${err.message}`);
-        updateStatusUI("offline", "Kích hoạt GPU thất bại");
-        showToast(err.message, "error");
-
-        isExecutingKernel = false;
-        btnConnectApiTop.disabled = false;
-        btnConnectApiOverlay.disabled = false;
-        btnConnectApiTopText.textContent = "Kết nối GPU Model";
-        btnConnectApiOverlayText.textContent = "THỬ LẠI KẾT NỐI GPU";
-        cmdBadgeWrapper.style.display = "flex";
-      }
-    }
-
-    // Theo dõi tiến trình thực thi của máy chủ và phát hiện khi mở cổng dịch vụ
-    function startMonitorExecution() {
-      if (monitorTimer) clearInterval(monitorTimer);
-      let seconds = 0;
-      const MAX_WAIT_SECONDS = 300; // 5 phút
-
-      monitorTimer = setInterval(async () => {
-        seconds += 3;
-
-        if (seconds >= 15 && seconds < 45) {
-          updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
-          updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
-        } else if (seconds >= 45) {
-          updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
-          updateStep(4, "running", `4. Đang kết nối Cloudflare Tunnel (${seconds}s)...`);
-        }
-
-        // 1. Liên tục cập nhật URL Backend mới nhất từ Server Render khi notebook Kaggle kết nối
-        try {
-          const cfgRes = await fetch("/api/config", { cache: "no-store" });
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
-              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
-            }
-          }
-        } catch (e) {}
-
-        // 2. Kiểm tra trực tiếp tính khả dụng của Backend URL
-        const currentConfig = getConfig();
-        if (currentConfig.backendUrl && currentConfig.backendUrl.startsWith("http")) {
-          try {
-            const pingUrl = `/api/status?target=${encodeURIComponent(currentConfig.backendUrl)}`;
-            const pRes = await fetch(pingUrl, { cache: "no-store" });
-            if (pRes.ok) {
-              const pData = await pRes.json();
-              if (pData.online) {
-                clearInterval(monitorTimer);
-                updateStep(4, "done", "4. Kết nối Cloudflare Tunnel thành công!");
-                updateStatusUI("online", `🟢 Backend GPU: Online (${pData.latencyMs || 0}ms)`);
-
-                overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
-                showToast("GPU AI đã online! Đang mở giao diện...", "success");
-
-                frame.src = currentConfig.backendUrl;
-
-                setTimeout(() => {
-                  hideOverlay();
-                  isExecutingKernel = false;
-                  btnConnectApiTop.disabled = false;
-                  btnConnectApiOverlay.disabled = false;
-                  btnConnectApiTopText.textContent = "Chạy lại Model";
-                  btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
-                  if (cmdBadgeWrapper) cmdBadgeWrapper.style.display = "flex";
-                }, 800);
-                return;
-              }
-            }
-          } catch (e) {}
-        }
-
-        if (seconds >= MAX_WAIT_SECONDS) {
-          clearInterval(monitorTimer);
-          isExecutingKernel = false;
-          btnConnectApiTop.disabled = false;
-          btnConnectApiOverlay.disabled = false;
-          btnConnectApiTopText.textContent = "Thử lại GPU";
-          btnConnectApiOverlayText.textContent = "KẾT NỐI LẠI GPU";
-          updateStep(4, "error", "4. Quá thời gian chờ (5 phút). Vui lòng thử lại hoặc kiểm tra kết nối API.");
-          cmdBadgeWrapper.style.display = "flex";
-          showToast("Quá thời gian kết nối. Vui lòng kiểm tra lại.", "error");
-        }
-      }, 3000);
-    }
-
-    // ========================================================================
-    // MODAL SETTINGS
-    // ========================================================================
-    function openSettingsModal() {
-      const config = getConfig();
-      inputSmartKey.value = config.auth;
-      settingsModal.style.display = "flex";
-    }
-
-    function closeSettingsModal() {
-      settingsModal.style.display = "none";
-    }
-
-    btnOpenSettings.addEventListener("click", openSettingsModal);
-    btnCloseSettings.addEventListener("click", closeSettingsModal);
-    settingsModal.addEventListener("click", (e) => {
-      if (e.target === settingsModal) closeSettingsModal();
-    });
-
-    if (fileKaggleJson) {
-      fileKaggleJson.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          inputSmartKey.value = event.target.result;
-          showToast("Đã tải tệp kaggle.json thành công!", "success");
-        };
-        reader.readAsText(file);
-      });
-    }
-
-    btnTestKaggleApi.addEventListener("click", async () => {
-      const auth = inputSmartKey.value.trim() || DEFAULT_CONFIG.defaultAuth;
-      btnTestKaggleApi.disabled = true;
-      btnTestKaggleApi.innerHTML = '<span class="mini-spinner"></span> Đang kiểm tra...';
-
-      try {
-        const res = await fetch("/api/kaggle-check", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ authInput: auth })
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          showToast("✅ Xác thực API Kaggle thành công!", "success");
-        } else {
-          showToast(`❌ ${data.error || "Token không hợp lệ"}`, "error");
-        }
-      } catch (err) {
-        showToast(`Lỗi kết nối: ${err.message}`, "error");
-      } finally {
-        btnTestKaggleApi.disabled = false;
-        btnTestKaggleApi.innerHTML = '<i class="fa-solid fa-plug"></i> Kiểm Tra Token';
-      }
-    });
-
-    
-
-
-    btnAutoStartGpu.addEventListener("click", () => {
-      const auth = inputSmartKey.value.trim();
-      if (!auth) {
-        showToast("Vui lòng nhập Token hoặc chọn file kaggle.json!", "error");
-        return;
-      }
-      localStorage.setItem("flood_kaggle_auth", auth);
-      showToast("Đang kích hoạt GPU Tesla T4...", "info");
-      closeSettingsModal();
-      startKaggleNotebookExecution(auth);
-    });
-
-    // ========================================================================
     // SỰ KIỆN GIAO DIỆN
     // ========================================================================
-    btnConnectApiTop.addEventListener("click", () => startKaggleNotebookExecution());
-    btnConnectApiOverlay.addEventListener("click", () => startKaggleNotebookExecution());
+    btnConnectApiTop.addEventListener("click", () => triggerZeroLeakWake());
+    btnConnectApiOverlay.addEventListener("click", () => triggerZeroLeakWake());
 
     const btnEnterAppDirectly = document.getElementById("btnEnterAppDirectly");
     if (btnEnterAppDirectly) {
@@ -1200,13 +903,8 @@
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
-        const config = getConfig();
-        if (config.auth) {
-          console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động đánh thức GPU Tesla T4...");
-          startKaggleNotebookExecution(config.auth);
-        } else {
-          showOverlay("Cần cấu hình GPU", "Vui lòng nhập Kaggle Token trong mục Cài đặt để hệ thống tự động kích hoạt GPU.");
-        }
+        console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động kích hoạt GPU Tesla T4...");
+        triggerZeroLeakWake();
       } else {
         const currentConfig = getConfig();
         if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
