@@ -852,12 +852,12 @@
                 overlaySubText.textContent = kLog.message;
               }
               if (kLog.status === "queued") {
-                updateStep(2, "running", `2. ${kLog.message} (${seconds}s)`);
+                updateStep(2, "running", `2. ${kLog.message}`);
               } else if (kLog.status === "running") {
                 updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
-                updateStep(3, "running", `3. ${kLog.message} (${seconds}s)`);
+                updateStep(3, "running", `3. ${kLog.message}`);
               } else if (kLog.status === "limit") {
-                updateStep(2, "running", `2. ${kLog.message} (${seconds}s)`);
+                updateStep(2, "running", `2. ${kLog.message}`);
               } else if (kLog.status === "ready") {
                 updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
                 updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
