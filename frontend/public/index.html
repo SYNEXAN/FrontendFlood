@@ -835,28 +835,9 @@
 
       monitorTimer = setInterval(async () => {
         seconds += 3;
+        let hasKernelTelemetry = false;
 
-        if (seconds >= 15 && seconds < 45) {
-          updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
-          updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
-        } else if (seconds >= 45 && seconds < 120) {
-          updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
-          updateStep(4, "running", `4. Đang kết nối Cloudflare Tunnel (${seconds}s)...`);
-        }
-
-        // Tự động phá nghẽn nếu hàng đợi Kaggle bị kẹt quá 120s (2 phút) - CHỈ CHẠY 1 LẦN DUY NHẤT
-        if (seconds >= 120 && !hasRetriedQueue) {
-          hasRetriedQueue = true;
-          updateStep(2, "running", "2. Đang kiểm tra giải phóng hàng đợi Kaggle (sau 2 phút)...");
-          showToast("Đang kiểm tra trạng thái hàng đợi Kaggle...", "info");
-          fetch("/api/wake-gpu", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ force: true })
-          }).catch(() => {});
-        }
-
-        // 1. Liên tục cập nhật URL Backend mới nhất từ Upstash Redis
+        // 1. Liên tục cập nhật URL Backend & Telemetry Log từ Upstash Redis
         try {
           const cfgRes = await fetch("/api/config", { cache: "no-store" });
           if (cfgRes.ok) {
@@ -864,8 +845,53 @@
             if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
               DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
             }
+            if (cfg && cfg.kernelLog) {
+              const kLog = cfg.kernelLog;
+              hasKernelTelemetry = true;
+              if (kLog.message) {
+                overlaySubText.textContent = kLog.message;
+              }
+              if (kLog.status === "queued") {
+                updateStep(2, "running", `2. ${kLog.message} (${seconds}s)`);
+              } else if (kLog.status === "running") {
+                updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
+                updateStep(3, "running", `3. ${kLog.message} (${seconds}s)`);
+              } else if (kLog.status === "limit") {
+                updateStep(2, "running", `2. ${kLog.message} (${seconds}s)`);
+              } else if (kLog.status === "ready") {
+                updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
+                updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
+                updateStep(4, "running", `4. Đang thiết lập kết nối giao diện...`);
+              } else if (kLog.status === "error") {
+                updateStep(2, "error", `2. Gặp sự cố: ${kLog.message}`);
+                showToast(kLog.message, "error");
+              }
+            }
           }
         } catch (e) {}
+
+        // Ước tính nếu chưa có telemetry trực tiếp từ Kaggle
+        if (!hasKernelTelemetry) {
+          if (seconds >= 15 && seconds < 45) {
+            updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
+            updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
+          } else if (seconds >= 45 && seconds < 120) {
+            updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
+            updateStep(4, "running", `4. Đang kết nối đường hầm AI Cloudflare / Gradio (${seconds}s)...`);
+          }
+        }
+
+        // Tự động phá nghẽn nếu hàng đợi Kaggle bị kẹt quá 120s (2 phút) - CHỈ CHẠY 1 LẦN DUY NHẤT
+        if (seconds >= 120 && !hasRetriedQueue) {
+          hasRetriedQueue = true;
+          updateStep(2, "running", "2. Hàng đợi Kaggle hơi chậm, đang tự động kiểm tra tối ưu tài khoản...");
+          showToast("Đang kiểm tra và tối ưu kết nối GPU...", "info");
+          fetch("/api/wake-gpu", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ force: true })
+          }).catch(() => {});
+        }
 
         // 2. Kiểm tra trực tiếp tính khả dụng của Backend URL
         const currentConfig = getConfig();
@@ -877,7 +903,7 @@
               const pData = await pRes.json();
               if (pData.online) {
                 clearInterval(monitorTimer);
-                updateStep(4, "done", "4. Kết nối Cloudflare Tunnel thành công!");
+                updateStep(4, "done", "4. Kết nối đường hầm AI thành công!");
                 updateStatusUI("online", `🟢 Backend GPU: Online (${pData.latencyMs || 0}ms)`);
 
                 overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";

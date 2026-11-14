@@ -7,6 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const DEFAULT_BACKEND_URL = process.env.DEFAULT_BACKEND_URL || "";
 let activeBackendUrl = DEFAULT_BACKEND_URL;
+let localKernelLog = null;
 
 // ============================================================================
 // UPSTASH REDIS REST API CLIENT (Serverless Persistent Key-Value Storage)
@@ -56,6 +57,55 @@ async function setStoredBackendUrl(url) {
     }
 }
 
+async function getStoredKernelLog() {
+    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (redisUrl && redisToken) {
+        try {
+            const res = await fetch(`${redisUrl}/get/kernelLog`, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${redisToken}` },
+                signal: AbortSignal.timeout(3500)
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.result) {
+                    try {
+                        return JSON.parse(data.result);
+                    } catch {
+                        return { message: data.result };
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[WARN] Failed to read kernelLog from Upstash Redis:', err.message);
+        }
+    }
+    return localKernelLog;
+}
+
+async function setStoredKernelLog(logData) {
+    localKernelLog = logData;
+    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (redisUrl && redisToken) {
+        try {
+            await fetch(redisUrl, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${redisToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(['SET', 'kernelLog', JSON.stringify(logData), 'EX', 3600]),
+                signal: AbortSignal.timeout(3500)
+            });
+            console.log(`[INFO] 📡 Saved kernelLog to Upstash Redis:`, logData.status);
+        } catch (err) {
+            console.error('[WARN] Failed to write kernelLog to Upstash Redis:', err.message);
+        }
+    }
+}
+
 async function clearStoredBackendUrl() {
     activeBackendUrl = "";
     const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -88,18 +138,40 @@ app.post('/api/backend-url', async (req, res) => {
     if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
         const cleanUrl = url.trim().replace(/\/+$/, '');
         await setStoredBackendUrl(cleanUrl);
+        await setStoredKernelLog({
+            status: 'ready',
+            message: 'Backend GPU đã sẵn sàng và kết nối thành công!',
+            details: cleanUrl,
+            updatedAt: new Date().toISOString()
+        });
         console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${cleanUrl}`);
         return res.json({ success: true, activeBackendUrl: cleanUrl });
     }
     res.status(400).json({ error: "Invalid URL" });
 });
 
+// Telemetry & Error Logging Endpoint from Kaggle Runner & Notebook
+app.post('/api/kernel-log', async (req, res) => {
+    const { status, message, details, account, timestamp } = req.body || {};
+    const logData = {
+        status: status || 'info',
+        message: message || '',
+        details: details || null,
+        account: account || null,
+        updatedAt: timestamp || new Date().toISOString()
+    };
+    await setStoredKernelLog(logData);
+    return res.json({ success: true, kernelLog: logData });
+});
+
 // API Config Endpoint
 app.get('/api/config', async (req, res) => {
     const liveUrl = await getStoredBackendUrl();
+    const kernelLog = await getStoredKernelLog();
     res.json({
         defaultBackendUrl: liveUrl,
-        wakeGpuConfigured: true
+        wakeGpuConfigured: true,
+        kernelLog: kernelLog
     });
 });
 
