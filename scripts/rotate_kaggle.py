@@ -213,14 +213,11 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
 def find_active_backend(username):
     """
     Kiểm tra xem có bất kỳ notebook synexan-flood-* nào của username đang RUNNING hoặc QUEUED hay không.
-    Ưu tiên:
-      1. RUNNING: Nếu có kernel đang chạy -> trả về ngay lập tức để tái sử dụng 100%.
-      2. QUEUED: Nếu có kernel đang xếp hàng cấp GPU -> trả về để theo dõi, tuyệt đối không push thêm.
-      3. NONE: Không có phiên nào đang chạy hoặc chờ.
+    Sử dụng 'kaggle kernels list --mine' không dùng --search để tránh độ trễ Elasticsearch của Kaggle.
     """
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--search", "synexan-flood", "--page-size", "15"],
+            ["kaggle", "kernels", "list", "--mine", "--page-size", "30"],
             capture_output=True,
             text=True,
             timeout=20
@@ -297,7 +294,7 @@ def cleanup_stale_kernels(username, current_slug=None):
     print(f"🧹 [Auto-Cleanup] Đang quét và dọn dẹp các notebook synexan-flood cũ của '{username}'...")
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--search", "synexan-flood", "--page-size", "15"],
+            ["kaggle", "kernels", "list", "--mine", "--page-size", "30"],
             capture_output=True,
             text=True,
             timeout=15
