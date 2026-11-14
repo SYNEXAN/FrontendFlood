@@ -14,8 +14,10 @@ import json
 import subprocess
 import ast
 import re
+import time
 import urllib.request
 import urllib.error
+from datetime import datetime
 from pathlib import Path
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
@@ -174,12 +176,18 @@ def get_remaining_gpu_hours():
     return None
 
 
-def get_exact_kernel_status(username):
+def generate_unique_slug():
+    """Tạo slug độc nhất cho notebook mới toanh mỗi lần chạy backend."""
+    now_str = datetime.utcnow().strftime("%m%d%H%M%S")
+    return f"synexan-flood-gpu-{now_str}"
+
+
+def get_exact_kernel_status(username, slug=KERNEL_SLUG):
     """
-    Truy vấn trạng thái chính xác của synexan-flood-backend-gpu.
+    Truy vấn trạng thái chính xác của kernel slug.
     Trả về: 'RUNNING', 'QUEUED', 'COMPLETE', 'ERROR', hoặc 'UNKNOWN'.
     """
-    target_id = f"{username}/{KERNEL_SLUG}"
+    target_id = f"{username}/{slug}"
     try:
         proc = subprocess.run(
             ["kaggle", "kernels", "status", target_id],
@@ -202,93 +210,107 @@ def get_exact_kernel_status(username):
         return "ERROR", str(e)
 
 
-def check_kernel_running(username):
-    """Kiểm tra xem kernel hiện tại đã đang chạy (running/queued) chưa."""
-    status, raw_msg = get_exact_kernel_status(username)
-    if status in ("RUNNING", "QUEUED"):
-        return True, raw_msg
-    return False, raw_msg
-
-
-def cancel_kernel_if_stuck(username, token=None):
-    """Cố gắng hủy kernel nếu bị kẹt hàng đợi qua Kaggle API và Kaggle SDK."""
-    target_id = f"{username}/{KERNEL_SLUG}"
-    print(f"   [Cancel Kernel] Đang gửi lệnh ngắt phiên cho '{target_id}'...")
-
-    # 1. Thử qua Kaggle Python SDK nếu có
+def find_running_backend(username):
+    """Kiểm tra xem có bất kỳ notebook synexan-flood-* nào của username đang thực sự RUNNING hay không."""
     try:
-        from kaggle.api.kaggle_api_extended import KaggleApi
-        from kagglesdk.kernels.types.kernels_api_service import ApiCancelKernelSessionRequest
-        api = KaggleApi()
-        api.authenticate()
-        with api.build_kaggle_client() as k:
-            req = ApiCancelKernelSessionRequest()
-            k.kernels.kernels_api_client.cancel_kernel_session(req)
-            print(f"   [Cancel Kernel] Đã gọi SDK cancel_kernel_session thành công!")
-            return True
-    except Exception as e:
+        proc = subprocess.run(
+            ["kaggle", "kernels", "list", "--mine", "--search", "synexan-flood", "--page-size", "10"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        lines = proc.stdout.strip().splitlines()
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 1 and "/" in parts[0]:
+                kernel_ref = parts[0].strip()
+                if username.lower() in kernel_ref.lower() and "synexan-flood" in kernel_ref.lower():
+                    st_proc = subprocess.run(
+                        ["kaggle", "kernels", "status", kernel_ref],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    st_out = (st_proc.stdout + st_proc.stderr).lower()
+                    if "kernelworkerstatus.running" in st_out or '"running"' in st_out:
+                        return kernel_ref, (st_proc.stdout + st_proc.stderr).strip()
+    except Exception:
         pass
-
-    # 2. Thử qua Kaggle REST API Endpoints
-    endpoints = [
-        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"kernel": target_id}),
-        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernelSession", {"kernel": target_id}),
-        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"kernelRef": target_id}),
-        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"userName": username, "kernelSlug": KERNEL_SLUG})
-    ]
-    if token:
-        for ep, body in endpoints:
-            try:
-                req = urllib.request.Request(
-                    ep,
-                    data=json.dumps(body).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    }
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    print(f"   [Cancel Kernel] Đã gọi {ep} thành công: {resp.status}")
-                    return True
-            except Exception:
-                pass
-    return False
+    return None, None
 
 
-def monitor_queue_and_retry(username, token=None, timeout_seconds=60):
+def cleanup_stale_kernels(username, current_slug=None):
     """
-    QUY TẮC 3: Giám sát hàng đợi trong đúng 60 giây (1 phút).
+    Tự động dọn dẹp các notebook synexan-flood-* cũ bị kẹt hàng đợi hoặc lỗi
+    để giải phóng slot GPU cho notebook mới toanh chạy ngay lập tức.
+    """
+    print(f"🧹 [Auto-Cleanup] Đang quét và dọn dẹp các notebook synexan-flood cũ của '{username}'...")
+    try:
+        proc = subprocess.run(
+            ["kaggle", "kernels", "list", "--mine", "--search", "synexan-flood", "--page-size", "15"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        lines = proc.stdout.strip().splitlines()
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 1 and "/" in parts[0]:
+                kernel_ref = parts[0].strip()
+                if username.lower() in kernel_ref.lower() and "synexan-flood" in kernel_ref.lower():
+                    if current_slug and current_slug.lower() in kernel_ref.lower():
+                        continue
+                    # Kiểm tra trạng thái của kernel cũ
+                    st_proc = subprocess.run(
+                        ["kaggle", "kernels", "status", kernel_ref],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    st_out = (st_proc.stdout + st_proc.stderr).lower()
+                    # Nếu kernel cũ đang bị kẹt QUEUED hoặc ERROR hoặc COMPLETE
+                    if "queued" in st_out or "error" in st_out or "complete" in st_out:
+                        print(f"   🗑️ Đang xóa kernel cũ để giải phóng slot GPU: {kernel_ref}")
+                        subprocess.run(["kaggle", "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
+    except Exception as e:
+        print(f"   [Auto-Cleanup] Lỗi quét kernel: {e}")
+
+
+def monitor_queue_and_retry(username, slug, token=None, timeout_seconds=60):
+    """
+    QUY TẮC 3: Giám sát hàng đợi của notebook mới trong đúng 60 giây.
     - Nếu trong 60s chuyển sang RUNNING: Thành công!
-    - Nếu sau 60s vẫn QUEUED: Hủy (Cancel) đúng phiên hàng đợi đó và trả về False.
+    - Nếu sau 60s vẫn QUEUED: Xóa notebook bị kẹt (Delete Kernel) để giải phóng slot GPU.
     """
-    print(f"⏳ [QUY TẮC 3] Giám sát hàng đợi của '{username}' trong tối đa {timeout_seconds}s...")
+    target_id = f"{username}/{slug}"
+    print(f"⏳ [QUY TẮC 3] Giám sát hàng đợi của '{target_id}' trong tối đa {timeout_seconds}s...")
     poll_interval = 6
     elapsed = 0
-    import time
 
     while elapsed < timeout_seconds:
         time.sleep(poll_interval)
         elapsed += poll_interval
 
-        status, raw_msg = get_exact_kernel_status(username)
-        print(f"   [{elapsed}s/{timeout_seconds}s] Trạng thái của '{username}': {status}")
+        status, raw_msg = get_exact_kernel_status(username, slug)
+        print(f"   [{elapsed}s/{timeout_seconds}s] Trạng thái của '{target_id}': {status}")
 
         if status == "RUNNING":
-            print(f"🎉 [CẤP GPU THÀNH CÔNG] Kernel của '{username}' đã chuyển sang RUNNING sau {elapsed}s!")
-            report_kernel_state("running", f"Kaggle đã cấp GPU Tesla T4 cho '{username}' sau {elapsed}s! Đang nạp mô hình AI...", raw_msg, username)
+            print(f"🎉 [CẤP GPU THÀNH CÔNG] Notebook '{target_id}' đã chuyển sang RUNNING sau {elapsed}s!")
+            report_kernel_state("running", f"Kaggle đã cấp GPU Tesla T4 cho '{slug}' sau {elapsed}s! Đang nạp mô hình AI...", raw_msg, username)
             return True, "RUNNING"
 
-        report_kernel_state("queued", f"Kaggle đang xếp hàng GPU cho '{username}' ({elapsed}s/{timeout_seconds}s)...", raw_msg, username)
+        report_kernel_state("queued", f"Kaggle đang xếp hàng GPU cho '{slug}' ({elapsed}s/{timeout_seconds}s)...", raw_msg, username)
 
-    print(f"🛑 [HẾT HẠN HÀNG ĐỢI] Kernel của '{username}' vẫn bị kẹt ở QUEUED sau {timeout_seconds}s.")
-    report_kernel_state("queued", f"Đã quá 60s trong hàng đợi. Đang ngắt phiên bị kẹt của '{username}' để khởi động lại...", None, username)
-    cancel_kernel_if_stuck(username, token)
+    print(f"🛑 [HẾT HẠN HÀNG ĐỢI] Notebook '{target_id}' vẫn bị kẹt ở QUEUED sau {timeout_seconds}s.")
+    report_kernel_state("queued", f"Đã quá 60s trong hàng đợi. Đang xóa notebook kẹt '{slug}' để dọn dẹp...", None, username)
+    # Xóa notebook kẹt để không chiếm dụng 1 trong 2 GPU slot
+    subprocess.run(["kaggle", "kernels", "delete", "-y", target_id], capture_output=True, text=True, timeout=15)
     time.sleep(3)
     return False, "QUEUED_TIMEOUT"
 
 
-def update_kernel_metadata(username):
-    """Cập nhật username trong notebooks/kernel-metadata.json."""
+def update_kernel_metadata(username, slug):
+    """Cập nhật ID và title notebook mới toanh trong notebooks/kernel-metadata.json."""
     meta_path = Path("notebooks") / "kernel-metadata.json"
     if not meta_path.exists():
         print(f"❌ Không tìm thấy {meta_path}!")
@@ -298,8 +320,8 @@ def update_kernel_metadata(username):
         with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
 
-        meta["id"] = f"{username}/{KERNEL_SLUG}"
-        meta["title"] = KERNEL_SLUG
+        meta["id"] = f"{username}/{slug}"
+        meta["title"] = slug
 
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -329,7 +351,7 @@ def push_kernel():
 
 def main():
     print("=" * 70)
-    print("🤖 SYNEXAN SMART KAGGLE ROTATION RUNNER")
+    print("🤖 SYNEXAN SMART KAGGLE ROTATION RUNNER (DYNAMIC NEW NOTEBOOK)")
     print("=" * 70)
 
     accounts = load_accounts()
@@ -350,138 +372,74 @@ def main():
         # 1. Cấu hình credentials
         setup_kaggle_credentials(username, key, acc.get("token"))
 
-        # Liệt kê tất cả kernel của tài khoản để xem các phiên GPU đang chiếm dụng
-        if acc.get("token"):
-            try:
-                url = "https://api.kaggle.com/v1/kernels.KernelsApiService/ListKernels"
-                req = urllib.request.Request(
-                    url,
-                    data=json.dumps({"group": "PROFILE", "pageSize": 10}).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {acc['token']}",
-                        "Content-Type": "application/json"
-                    }
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    kdata = json.loads(resp.read().decode("utf-8"))
-                    print(f"   [Kaggle Profile Kernels] Tìm thấy {len(kdata.get('kernels', []))} kernels:")
-                    for k in kdata.get("kernels", []):
-                        print(f"      * Ref: {k.get('ref')} | Status: {k.get('status')} | TotalRunTime: {k.get('totalRunTime')}s | LastRunTime: {k.get('lastRunTime')}")
-            except Exception as e:
-                print(f"   [Kaggle Profile Kernels] Lỗi đọc danh sách kernels: {e}")
-
-        # 2. Kiểm tra phiên đang chạy chính xác (QUY TẮC 1 & QUY TẮC 3)
-        status, status_msg = get_exact_kernel_status(username)
-        print(f"   [Kernel Status] Trạng thái hiện tại của {username}/{KERNEL_SLUG}: {status} ({status_msg})")
-
-        # ---------------------------------------------------------------------
-        # QUY TẮC 1: Nếu backend synexan-flood-backend-gpu đang RUNNING từ trước
-        # -> LẤY ĐÚNG PHIÊN ĐÓ, TUYỆT ĐỐI KHÔNG CHẠY CÁI KHÁC
-        # ---------------------------------------------------------------------
-        if status == "RUNNING":
-            print(f"🎉 [QUY TẮC 1 - TÁI SỬ DỤNG] Backend của '{username}' ĐANG CHẠY ({status_msg})!")
-            print("👉 Giữ nguyên 100% phiên hiện tại, không đẩy đè, kết nối trực tiếp.")
-            report_kernel_state("running", f"Notebook backend của '{username}' đang chạy ổn định trên GPU Tesla T4. Đang kết nối trực tiếp...", status_msg, username)
+        # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY KHÔNG (Quy tắc 1)
+        running_ref, running_msg = find_running_backend(username)
+        if running_ref:
+            print(f"🎉 [QUY TẮC 1 - TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {running_ref} ({running_msg})!")
+            print("👉 Giữ nguyên phiên đang chạy, không cần tạo mới, kết nối trực tiếp.")
+            report_kernel_state("running", f"Máy chủ GPU '{running_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", running_msg, username)
             print("=" * 70)
             sys.exit(0)
 
-        # ---------------------------------------------------------------------
-        # QUY TẮC 3: Nếu backend đang trong hàng đợi (QUEUED) sẵn từ trước
-        # -> Giám sát trong 60s, nếu sau 60s không chuyển sang RUNNING thì ngắt
-        # ---------------------------------------------------------------------
-        if status == "QUEUED":
-            got_running, _ = monitor_queue_and_retry(username, acc.get("token"), timeout_seconds=60)
-            if got_running:
-                print("=" * 70)
-                sys.exit(0)
-            # Sau 60s bị timeout và đã cancel: nếu có nhiều tài khoản thì xoay sang tài khoản kế tiếp
-            if len(accounts) > 1 and idx < len(accounts):
-                print(f"🔄 [ROTATE] Hàng đợi tài khoản '{username}' bị nghẽn sau 60s. Xoay sang tài khoản tiếp theo...")
-                report_kernel_state("queued", f"Hàng đợi của '{username}' bị nghẽn sau 60s. Đang chuyển sang tài khoản kế tiếp...", None, username)
-                continue
+        # 3. Sinh Slug độc nhất cho Notebook Mới Toanh mỗi lần chạy
+        new_slug = generate_unique_slug()
+        print(f"✨ [NEW NOTEBOOK] Chuẩn bị khởi tạo Notebook mới toanh: '{username}/{new_slug}'")
+        report_kernel_state("pushing", f"Đang chuẩn bị khởi tạo Notebook mới toanh: '{new_slug}'...", None, username)
 
-        # 3. Kiểm tra quota còn lại
-        remaining_hours = get_remaining_gpu_hours()
-        if remaining_hours is not None:
-            print(f"📊 Thời lượng GPU còn lại của {username}: {remaining_hours:.2f}h / 30.00h")
-            if remaining_hours < MIN_GPU_HOURS_THRESHOLD:
-                print(f"⚠️ [LOW QUOTA] Tài khoản {username} gần hết hạn mức ({remaining_hours:.2f}h < {MIN_GPU_HOURS_THRESHOLD}h).")
-                print("🔄 Tự động xoay sang tài khoản tiếp theo...")
-                report_kernel_state("error", f"Tài khoản '{username}' gần hết quota GPU ({remaining_hours:.1f}h). Đang chuyển tài khoản...", None, username)
-                continue
-        else:
-            print("ℹ️ Không lấy được thông tin quota qua CLI, tiếp tục thử đẩy kernel...")
+        # 4. Tự động dọn dẹp các notebook cũ bị kẹt để giải phóng slot GPU
+        cleanup_stale_kernels(username, current_slug=new_slug)
+        time.sleep(2)
 
-        # 4. Cập nhật metadata notebook
-        if not update_kernel_metadata(username):
+        # 5. Cập nhật metadata với Notebook Mới Toanh
+        if not update_kernel_metadata(username, new_slug):
             continue
 
-        # 5. Kích hoạt GPU Kernel
-        print(f"🚀 Đang đẩy Kernel lên Kaggle GPU cho tài khoản '{username}'...")
-        report_kernel_state("pushing", f"Đang gửi mã nguồn khởi động GPU Kaggle cho tài khoản '{username}'...", None, username)
+        # 6. Đẩy Notebook Mới lên Kaggle (Version 1 sạch 100%)
+        print(f"🚀 Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...")
+        report_kernel_state("pushing", f"Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...", None, username)
         success, push_msg = push_kernel()
 
         if success:
-            print(f"✅ THÀNH CÔNG! Đã khởi động GPU Kernel cho tài khoản '{username}'.")
-            print(f"   Chi tiết: {push_msg}")
-            report_kernel_state("queued", f"Đã gửi lệnh khởi động cho '{username}'. Đang vào hàng đợi cấp GPU Tesla T4...", push_msg, username)
+            print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' (Version 1) cho '{username}'.")
+            report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp GPU Tesla T4...", push_msg, username)
 
-            # QUY TẮC 3: Giám sát hàng đợi trong 60s, nếu sau 60s vẫn QUEUED thì ngắt và xử lý tiếp
-            got_running, _ = monitor_queue_and_retry(username, acc.get("token"), timeout_seconds=60)
+            # Giám sát 60s
+            got_running, _ = monitor_queue_and_retry(username, new_slug, acc.get("token"), timeout_seconds=60)
             if got_running:
                 print("=" * 70)
                 sys.exit(0)
 
-            # Nếu sau 60s vẫn QUEUED (đã ngắt), nếu còn tài khoản khác thì xoay sang tài khoản tiếp theo
+            # Nếu sau 60s vẫn QUEUED (đã xóa), xoay sang tài khoản tiếp theo nếu có
             if len(accounts) > 1 and idx < len(accounts):
-                print(f"🔄 [ROTATE] Hàng đợi tài khoản '{username}' bị nghẽn sau 60s. Xoay sang tài khoản tiếp theo...")
+                print(f"🔄 [ROTATE] Notebook '{new_slug}' kẹt sau 60s. Xoay sang tài khoản tiếp theo...")
                 continue
 
-            # Nếu là tài khoản duy nhất, thử đẩy lại 1 lần cuối
-            print(f"🔄 Thử khởi động lại phiên mới trên tài khoản '{username}'...")
-            report_kernel_state("queued", f"Đang khởi động lại phiên mới trên tài khoản '{username}'...", None, username)
+            # Nếu là tài khoản duy nhất, thử sinh thêm 1 notebook mới khác
+            retry_slug = generate_unique_slug()
+            print(f"🔄 Thử tạo notebook mới khác: '{retry_slug}'...")
+            update_kernel_metadata(username, retry_slug)
             push_kernel()
             print("=" * 70)
             sys.exit(0)
         else:
             lower_msg = push_msg.lower()
-            # -----------------------------------------------------------------
-            # QUY TẮC 2: HẾT 2 SLOT GPU (Maximum batch GPU session count reached)
-            # -----------------------------------------------------------------
             if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
-                # Kiểm tra xem trong 2 slot đó có backend synexan-flood-backend-gpu đang chạy hoặc chờ không
-                check_st, check_msg = get_exact_kernel_status(username)
-                if check_st == "RUNNING":
-                    print(f"✅ [QUY TẮC 1] Phát hiện Backend của '{username}' CHÍNH LÀ 1 trong 2 phiên GPU đang chạy!")
-                    report_kernel_state("running", f"Notebook backend của '{username}' đang chạy trên GPU. Đang kết nối trực tiếp...", check_msg, username)
-                    print("=" * 70)
-                    sys.exit(0)
-                elif check_st == "QUEUED":
-                    print(f"⏳ Phát hiện Backend của '{username}' đang nằm trong hàng đợi giữ slot GPU!")
-                    report_kernel_state("queued", f"Backend của '{username}' đang giữ slot trong hàng đợi Kaggle. Đang chờ cấp GPU...", check_msg, username)
-                    print("=" * 70)
-                    sys.exit(0)
-
-                # Nếu 2 slot GPU đó KHÔNG CÓ backend chạy hoặc chờ (do các notebook khác chiếm dụng)
-                print(f"⚠️ [QUY TẮC 2 - HẾT SLOT GPU] Tài khoản '{username}' hết 2 slot GPU bởi các notebook khác (không có backend chạy)!")
+                print(f"⚠️ [CONCURRENT LIMIT] Tài khoản '{username}' bị đầy slot GPU!")
+                cleanup_stale_kernels(username, current_slug=new_slug)
                 if len(accounts) > 1 and idx < len(accounts):
-                    print("🔄 Lập tức xoay sang tài khoản dự phòng tiếp theo...")
-                    report_kernel_state("limit", f"Tài khoản '{username}' hết 2 slot GPU bởi notebook khác. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
+                    print("🔄 Xoay sang tài khoản tiếp theo...")
+                    report_kernel_state("limit", f"Tài khoản '{username}' đầy slot GPU. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
                     continue
                 else:
-                    print("⚠️ Đây là tài khoản duy nhất, không thể đẩy thêm kernel.")
-                    report_kernel_state("error", f"Tài khoản '{username}' đã chiếm dụng hết 2 slot GPU bởi các notebook khác! Vui lòng dừng bớt notebook hoặc thêm tài khoản phụ.", push_msg, username)
-                    print("=" * 70)
+                    report_kernel_state("error", f"Tài khoản '{username}' đã hết 2 slot GPU bởi các notebook khác. Vui lòng tắt bớt notebook.", push_msg, username)
                     sys.exit(1)
             elif "quota" in lower_msg or "exceeded" in lower_msg or "limit" in lower_msg:
                 print(f"⚠️ [QUOTA EXCEEDED] Kaggle từ chối do hết quota: {push_msg}")
                 report_kernel_state("error", f"Tài khoản '{username}' đã hết hạn mức 30h GPU hàng tuần! Đang chuyển tài khoản...", push_msg, username)
-                print("🔄 Tự động xoay sang tài khoản tiếp theo...")
                 continue
             else:
                 print(f"❌ [LỖI PUSH] {push_msg}")
                 report_kernel_state("error", f"Lỗi khởi động kernel cho '{username}': {push_msg[:100]}", push_msg, username)
-                print("🔄 Thử tài khoản tiếp theo nếu có...")
 
     print("\n" + "=" * 70)
     print("❌ TẤT CẢ TÀI KHOẢN KAGGLE ĐỀU ĐÃ HẾT GIỜ HOẶC GẶP LỖI!")
