@@ -17,7 +17,7 @@ import re
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import csv
 
@@ -241,10 +241,33 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
         return "ERROR", str(e)
 
 
+def get_slug_age_seconds(slug):
+    """Tính tuổi (theo giây) của notebook slug dạng synexan-flood-gpu-MMDDHHMMSS so với UTC hiện tại."""
+    try:
+        match = re.search(r"(\d{10})$", slug)
+        if match:
+            digits = match.group(1)
+            now_utc = datetime.now(timezone.utc)
+            kernel_dt = datetime(
+                year=now_utc.year,
+                month=int(digits[0:2]),
+                day=int(digits[2:4]),
+                hour=int(digits[4:6]),
+                minute=int(digits[6:8]),
+                second=int(digits[8:10]),
+                tzinfo=timezone.utc
+            )
+            return max(0, (now_utc - kernel_dt).total_seconds())
+    except Exception:
+        pass
+    return None
+
+
 def find_active_backend(username):
     """
     Kiểm tra xem có bất kỳ notebook synexan-* nào của username đang RUNNING hoặc QUEUED hay không.
     Sử dụng '-s synexan -v' để lọc chính xác và phân tích qua CSV parser chuẩn.
+    Tự động hủy và dọn dẹp các phiên QUEUED thây ma (đã kẹt > 3 phút).
     """
     try:
         proc = subprocess.run(
@@ -280,8 +303,16 @@ def find_active_backend(username):
 
                     if "kernelworkerstatus.running" in lower_st or '"running"' in lower_st:
                         return kernel_ref, "RUNNING", st_out
-                    elif ("kernelworkerstatus.queued" in lower_st or '"queued"' in lower_st) and not first_queued:
-                        if not kernel_ref.lower().endswith("synexan-flood-backend-gpu"):
+                    elif "kernelworkerstatus.queued" in lower_st or '"queued"' in lower_st:
+                        # Kiểm tra xem phiên QUEUED này có phải zombie queue (cũ > 3 phút)
+                        age = get_slug_age_seconds(kernel_ref)
+                        if age is not None and age > 180:
+                            print(f"   🛑 Phiên QUEUED '{kernel_ref}' đã kẹt {int(age // 60)} phút trước (zombie queue). Đang hủy để giải phóng GPU slot...")
+                            subprocess.run([*KAGGLE_CMD, "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
+                            time.sleep(4)
+                            subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
+                            continue
+                        elif not first_queued and not kernel_ref.lower().endswith("synexan-flood-backend-gpu"):
                             first_queued = (kernel_ref, "QUEUED", st_out)
 
         if first_queued:
@@ -297,6 +328,7 @@ def cleanup_stale_kernels(username, current_slug=None):
     """
     Tự động dọn dẹp các notebook synexan-* cũ của username.
     Sử dụng '-s synexan -v' để phát hiện chính xác tất cả phiên synexan.
+    Hủy các phiên QUEUED quá hạn > 3 phút để giải phóng slot GPU.
     """
     print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan cũ của '{username}' (-s synexan -v)...")
     try:
@@ -326,11 +358,14 @@ def cleanup_stale_kernels(username, current_slug=None):
                     )
                     st_out = (st_proc.stdout + st_proc.stderr).lower()
                     
-                    # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED hoặc cũ để giải phóng slot GPU
-                    if "queued" in st_out or (FORCE_PUSH and "running" in st_out):
-                        print(f"   🛑 Đang hủy phiên synexan cũ kẹt hàng đợi để giải phóng slot: {kernel_ref}")
+                    age = get_slug_age_seconds(kernel_ref)
+                    is_zombie_queue = ("queued" in st_out) and (age is not None and age > 180)
+
+                    # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED > 3 phút hoặc cũ để giải phóng slot GPU
+                    if is_zombie_queue or (FORCE_PUSH and "running" in st_out):
+                        print(f"   🛑 Đang hủy phiên synexan kẹt ({'zombie queue' if is_zombie_queue else 'force push'}): {kernel_ref}")
                         subprocess.run([*KAGGLE_CMD, "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
-                        time.sleep(8) # Đợi Kaggle giải phóng slot trong cụm máy chủ
+                        time.sleep(6) # Đợi Kaggle giải phóng slot trong cụm máy chủ
                         st_out = "cancel_acknowledged"
 
                     # 2. Xóa các kernel synexan đã kết thúc/lỗi/hủy để danh sách luôn sạch
@@ -582,6 +617,9 @@ def main():
 
             # 1. Cấu hình credentials
             setup_kaggle_credentials(username, key, acc.get("token"))
+
+            # 1b. Tự động dọn dẹp các phiên synexan cũ đã kết thúc/lỗi hoặc kẹt QUEUED > 3 phút
+            cleanup_stale_kernels(username)
 
             # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
             if not FORCE_PUSH:
