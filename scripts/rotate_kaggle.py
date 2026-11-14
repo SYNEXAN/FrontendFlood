@@ -244,7 +244,9 @@ def find_active_backend(username):
                     if "kernelworkerstatus.running" in lower_st or '"running"' in lower_st:
                         return kernel_ref, "RUNNING", st_out
                     elif ("kernelworkerstatus.queued" in lower_st or '"queued"' in lower_st) and not first_queued:
-                        first_queued = (kernel_ref, "QUEUED", st_out)
+                        # Bỏ qua phiên cũ tĩnh synexan-flood-backend-gpu để tránh kẹt vĩnh viễn vào zombie session
+                        if not kernel_ref.lower().endswith("synexan-flood-backend-gpu"):
+                            first_queued = (kernel_ref, "QUEUED", st_out)
 
         if first_queued:
             return first_queued
@@ -259,6 +261,7 @@ def check_all_account_kernels(username):
     """Quét toàn bộ danh sách kernels của tài khoản để hiển thị thông tin kiểm toán (Audit Only)."""
     print(f"🔍 [Audit] Đang quét toàn bộ danh sách kernels của '{username}'...")
     active_sessions = []
+    busy_other_ref = None
     try:
         proc = subprocess.run(
             ["kaggle", "kernels", "list", "--mine", "--page-size", "20"],
@@ -278,10 +281,12 @@ def check_all_account_kernels(username):
                     print(f"      * {kref} -> {st_text}")
                     if "running" in lower_st or "queued" in lower_st:
                         active_sessions.append((kref, st_text))
+                        if "synexan-flood" not in kref.lower() and "running" in lower_st:
+                            busy_other_ref = kref
         print(f"   📊 Tổng số phiên GPU đang chạy/chờ của '{username}': {len(active_sessions)}")
     except Exception as e:
         print(f"   [Audit] Lỗi quét kernels: {e}")
-    return active_sessions
+    return active_sessions, busy_other_ref
 
 
 def cleanup_stale_kernels(username, current_slug=None):
@@ -350,7 +355,7 @@ def monitor_queue_and_retry(username, slug, token=None, timeout_seconds=60):
 
 
 def update_kernel_metadata(username, slug):
-    """Cập nhật ID và title notebook mới toanh trong notebooks/kernel-metadata.json."""
+    """Cập nhật ID, title và cấu hình accelerator GPU T4 trong notebooks/kernel-metadata.json."""
     meta_path = Path("notebooks") / "kernel-metadata.json"
     if not meta_path.exists():
         print(f"❌ Không tìm thấy {meta_path}!")
@@ -362,6 +367,9 @@ def update_kernel_metadata(username, slug):
 
         meta["id"] = f"{username}/{slug}"
         meta["title"] = slug
+        meta["enable_gpu"] = True
+        meta["machine_shape"] = "NvidiaTeslaT4"
+        meta["enable_internet"] = True
 
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -373,10 +381,10 @@ def update_kernel_metadata(username, slug):
 
 
 def push_kernel():
-    """Thực thi đẩy notebook lên Kaggle GPU."""
+    """Thực thi đẩy notebook lên Kaggle GPU với accelerator NvidiaTeslaT4 chuẩn."""
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "push", "-p", "notebooks"],
+            ["kaggle", "kernels", "push", "-p", "notebooks", "--accelerator", "NvidiaTeslaT4"],
             capture_output=True,
             text=True,
             timeout=45
@@ -413,7 +421,15 @@ def main():
         setup_kaggle_credentials(username, key, acc.get("token"))
 
         # Kiểm tra toàn diện các phiên đang chiếm GPU của tài khoản này
-        check_all_account_kernels(username)
+        active_sessions, busy_other_ref = check_all_account_kernels(username)
+
+        # Nếu tài khoản này đang bận chạy huấn luyện notebook khác, tự động chuyển ngay sang tài khoản tiếp theo
+        if busy_other_ref:
+            print(f"⚠️ [SLOT BẬN] Tài khoản '{username}' đang bận chạy huấn luyện notebook khác: {busy_other_ref}!")
+            if len(accounts) > 1 and idx < len(accounts):
+                print(f"🔄 Tự động chuyển ngay sang tài khoản tiếp theo để tránh kẹt hàng đợi...")
+                report_kernel_state("limit", f"Tài khoản '{username}' đang bận chạy '{busy_other_ref}'. Tự động chuyển tài khoản kế tiếp...", None, username)
+                continue
 
         # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
         active_ref, active_status, active_msg = find_active_backend(username)
