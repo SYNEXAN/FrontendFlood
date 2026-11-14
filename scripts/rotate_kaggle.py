@@ -19,6 +19,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from pathlib import Path
+import csv
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
 MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0"))
@@ -234,12 +235,12 @@ def get_exact_kernel_status(username, slug=KERNEL_SLUG):
 
 def find_active_backend(username):
     """
-    Kiểm tra xem có bất kỳ notebook synexan-flood-* nào của username đang RUNNING hoặc QUEUED hay không.
-    Sử dụng '--sort-by dateRun' để luôn quét các notebook mới nhất vừa chạy hôm nay.
+    Kiểm tra xem có bất kỳ notebook synexan-* nào của username đang RUNNING hoặc QUEUED hay không.
+    Sử dụng '-s synexan -v' để lọc chính xác và phân tích qua CSV parser chuẩn.
     """
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--sort-by", "dateRun", "--page-size", "30"],
+            ["kaggle", "kernels", "list", "--mine", "-s", "synexan", "-v"],
             capture_output=True,
             text=True,
             timeout=20
@@ -247,11 +248,13 @@ def find_active_backend(username):
         lines = proc.stdout.strip().splitlines()
         first_queued = None
 
-        for line in lines:
-            parts = line.split()
-            if len(parts) >= 1 and "/" in parts[0]:
-                kernel_ref = parts[0].strip()
-                if username.lower() in kernel_ref.lower() and "synexan-flood" in kernel_ref.lower():
+        if len(lines) > 1:
+            reader = csv.DictReader(lines)
+            for row in reader:
+                kernel_ref = row.get("ref", "").strip()
+                if not kernel_ref:
+                    continue
+                if username.lower() in kernel_ref.lower() and "synexan" in kernel_ref.lower():
                     time.sleep(1) # Tôn trọng Kaggle rate limit
                     st_proc = subprocess.run(
                         ["kaggle", "kernels", "status", kernel_ref],
@@ -270,7 +273,6 @@ def find_active_backend(username):
                     if "kernelworkerstatus.running" in lower_st or '"running"' in lower_st:
                         return kernel_ref, "RUNNING", st_out
                     elif ("kernelworkerstatus.queued" in lower_st or '"queued"' in lower_st) and not first_queued:
-                        # Bỏ qua phiên cũ tĩnh synexan-flood-backend-gpu để tránh kẹt vĩnh viễn vào zombie session
                         if not kernel_ref.lower().endswith("synexan-flood-backend-gpu"):
                             first_queued = (kernel_ref, "QUEUED", st_out)
 
@@ -285,27 +287,25 @@ def find_active_backend(username):
 
 def cleanup_stale_kernels(username, current_slug=None):
     """
-    Tự động dọn dẹp các notebook synexan-flood-* cũ của username.
-    Sử dụng '--sort-by dateRun' để phát hiện chính xác các phiên vừa chạy/chờ hôm nay.
+    Tự động dọn dẹp các notebook synexan-* cũ của username.
+    Sử dụng '-s synexan -v' để phát hiện chính xác tất cả phiên synexan.
     """
-    print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan-flood cũ của '{username}' (sort-by dateRun)...")
+    print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan cũ của '{username}' (-s synexan -v)...")
     try:
         proc = subprocess.run(
-            ["kaggle", "kernels", "list", "--mine", "--sort-by", "dateRun", "--page-size", "30"],
+            ["kaggle", "kernels", "list", "--mine", "-s", "synexan", "-v"],
             capture_output=True,
             text=True,
             timeout=20
         )
         lines = proc.stdout.strip().splitlines()
-        print(f"   📋 [Kernels dateRun top 8 cho {username}]:")
-        for l in lines[:8]:
-            print(f"      {l}")
-        for line in lines:
-            parts = line.split()
-            if len(parts) >= 1 and "/" in parts[0]:
-                kernel_ref = parts[0].strip()
-                # CHỈ thao tác trên synexan-flood, bỏ qua toàn bộ các notebook khác của người dùng
-                if username.lower() in kernel_ref.lower() and "synexan-flood" in kernel_ref.lower():
+        if len(lines) > 1:
+            reader = csv.DictReader(lines)
+            for row in reader:
+                kernel_ref = row.get("ref", "").strip()
+                if not kernel_ref:
+                    continue
+                if username.lower() in kernel_ref.lower() and "synexan" in kernel_ref.lower():
                     if current_slug and current_slug.lower() in kernel_ref.lower():
                         continue
 
@@ -320,7 +320,7 @@ def cleanup_stale_kernels(username, current_slug=None):
                     
                     # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED hoặc cũ để giải phóng slot GPU
                     if "queued" in st_out or (FORCE_PUSH and "running" in st_out):
-                        print(f"   🛑 Đang hủy phiên synexan cũ kẹt hàng đợi để giải phóng slot GPU: {kernel_ref}")
+                        print(f"   🛑 Đang hủy phiên synexan cũ kẹt hàng đợi để giải phóng slot: {kernel_ref}")
                         subprocess.run(["kaggle", "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
                         time.sleep(8) # Đợi Kaggle giải phóng slot trong cụm máy chủ
                         st_out = "cancel_acknowledged"
@@ -354,17 +354,17 @@ def monitor_queue_and_retry(username, slug, token=None, timeout_seconds=105):
 
         if status == "RUNNING":
             print(f"🎉 [CẤP GPU THÀNH CÔNG] Notebook '{target_id}' đã chuyển sang RUNNING sau {elapsed}s!")
-            report_kernel_state("running", f"Kaggle đã cấp GPU Tesla T4 cho '{slug}' sau {elapsed}s! Đang nạp mô hình AI...", raw_msg, username)
+            report_kernel_state("running", f"Kaggle đã cấp GPU cho '{slug}' sau {elapsed}s! Đang nạp mô hình AI...", raw_msg, username)
             return True, "RUNNING"
 
-        report_kernel_state("queued", f"Kaggle đang xếp hàng GPU cho '{slug}' ({elapsed}s/{timeout_seconds}s)...", raw_msg, username)
+        report_kernel_state("queued", f"Kaggle đang xếp hàng tài nguyên cho '{slug}' ({elapsed}s/{timeout_seconds}s)...", raw_msg, username)
 
     print(f"ℹ️ Notebook '{target_id}' vẫn đang ở trong hàng đợi QUEUED sau {timeout_seconds}s.")
     return False, "QUEUED"
 
 
-def update_kernel_metadata(username, slug):
-    """Cập nhật ID, title và cấu hình accelerator GPU T4 trong notebooks/kernel-metadata.json."""
+def update_kernel_metadata(username, slug, use_gpu=True, machine_shape="NvidiaTeslaT4"):
+    """Cập nhật ID, title và cấu hình accelerator GPU/CPU trong notebooks/kernel-metadata.json."""
     meta_path = Path("notebooks") / "kernel-metadata.json"
     if not meta_path.exists():
         print(f"❌ Không tìm thấy {meta_path}!")
@@ -376,8 +376,11 @@ def update_kernel_metadata(username, slug):
 
         meta["id"] = f"{username}/{slug}"
         meta["title"] = slug
-        meta["enable_gpu"] = True
-        meta["machine_shape"] = "NvidiaTeslaT4"
+        meta["enable_gpu"] = use_gpu
+        if use_gpu and machine_shape:
+            meta["machine_shape"] = machine_shape
+        else:
+            meta.pop("machine_shape", None)
         meta["enable_internet"] = True
 
         with open(meta_path, "w", encoding="utf-8") as f:
@@ -547,19 +550,36 @@ def main():
             cleanup_stale_kernels(username, current_slug=new_slug)
             time.sleep(2)
 
-            # 5. Cập nhật metadata với Notebook Mới Toanh
-            if not update_kernel_metadata(username, new_slug):
-                continue
+            # 5 & 6. Đẩy Notebook Mới lên Kaggle với cơ chế đa tầng (Dual T4 -> Single GPU -> CPU Fallback)
+            accelerator_options = [
+                (True, "NvidiaTeslaT4", "GPU Tesla T4 (Dual T4)"),
+                (True, None, "GPU Tesla P100 (Single GPU)"),
+            ]
+            if round_idx >= 3:
+                accelerator_options.append((False, None, "CPU Đa Luồng (Instant Fallback)"))
 
-            # 6. Đẩy Notebook Mới lên Kaggle (Version 1 sạch 100%)
-            print(f"🚀 Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...")
-            report_kernel_state("pushing", f"Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle GPU...", None, username)
-            success, push_msg = push_kernel()
+            success = False
+            push_msg = ""
+            for use_gpu, m_shape, label in accelerator_options:
+                update_kernel_metadata(username, new_slug, use_gpu=use_gpu, machine_shape=m_shape)
+                print(f"🚀 Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle {label}...")
+                report_kernel_state("pushing", f"Đang đẩy Notebook mới toanh '{new_slug}' lên Kaggle {label}...", None, username)
+                success, push_msg = push_kernel()
+                if success:
+                    print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' trên {label} cho '{username}'.")
+                    report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp {label}...", push_msg, username)
+                    break
+                else:
+                    lower_msg = push_msg.lower()
+                    if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
+                        print(f"   ⚠️ Tài khoản '{username}' hết slot cho {label}, thử cấu hình accelerator kế tiếp...")
+                        time.sleep(2)
+                        continue
+                    else:
+                        print(f"   ⚠️ Lỗi push {label}: {push_msg}")
+                        break
 
             if success:
-                print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' (Version 1) cho '{username}'.")
-                report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp GPU Tesla T4...", push_msg, username)
-
                 # Giám sát 105s
                 got_running, _ = monitor_queue_and_retry(username, new_slug, acc.get("token"), timeout_seconds=105)
                 if got_running:
