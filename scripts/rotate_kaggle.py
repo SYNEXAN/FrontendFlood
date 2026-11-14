@@ -164,10 +164,37 @@ def check_kernel_running(username):
         )
         out = (proc.stdout + proc.stderr).lower()
         if "running" in out or "queued" in out:
-            return True, out.strip()
-        return False, out.strip()
+            return True, (proc.stdout + proc.stderr).strip()
+        return False, (proc.stdout + proc.stderr).strip()
     except Exception as e:
         return False, str(e)
+
+
+def cancel_kernel_if_stuck(username, token=None):
+    """Cố gắng hủy kernel nếu bị kẹt hàng đợi qua Kaggle API."""
+    target_id = f"{username}/{KERNEL_SLUG}"
+    endpoints = [
+        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"kernel": target_id}),
+        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"kernelRef": target_id}),
+        ("https://api.kaggle.com/v1/kernels.KernelsApiService/CancelKernel", {"userName": username, "kernelSlug": KERNEL_SLUG})
+    ]
+    if token:
+        for ep, body in endpoints:
+            try:
+                req = urllib.request.Request(
+                    ep,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    print(f"   [Cancel Kernel] Đã gọi {ep} thành công: {resp.status}")
+                    return True
+            except Exception as e:
+                pass
+    return False
 
 
 def update_kernel_metadata(username):
@@ -259,6 +286,7 @@ def main():
                 print(f"🔄 [QUEUE ROTATE] Hàng đợi của '{username}' bị nghẽn ({status_msg}). Tự động xoay sang tài khoản dự phòng tiếp theo...")
                 continue
             print(f"⚠️ [FORCE PUSH] Kernel của '{username}' đang chạy ({status_msg}) nhưng FORCE_PUSH được kích hoạt. Đang hủy hàng đợi & đẩy lại phiên mới...")
+            cancel_kernel_if_stuck(username, acc.get("token"))
 
         # 3. Kiểm tra quota còn lại
         remaining_hours = get_remaining_gpu_hours()
@@ -286,7 +314,13 @@ def main():
             sys.exit(0)
         else:
             lower_msg = push_msg.lower()
-            if "quota" in lower_msg or "exceeded" in lower_msg or "limit" in lower_msg:
+            if "maximum batch gpu session count" in lower_msg or "session count of 2 reached" in lower_msg:
+                print(f"⚠️ [CONCURRENT LIMIT] Tài khoản '{username}' đã đạt giới hạn tối đa 2 GPU sessions trên Kaggle!")
+                print("   👉 Kaggle đang thực thi 2 GPU session trước đó.")
+                print("   👉 Đang giữ nguyên để các phiên này hoàn thành khởi động...")
+                print("=" * 70)
+                sys.exit(0)
+            elif "quota" in lower_msg or "exceeded" in lower_msg or "limit" in lower_msg:
                 print(f"⚠️ [QUOTA EXCEEDED] Kaggle từ chối do hết quota: {push_msg}")
                 print("🔄 Tự động xoay sang tài khoản tiếp theo...")
                 continue
