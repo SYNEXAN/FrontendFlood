@@ -260,6 +260,26 @@ def main():
         # 1. Cấu hình credentials
         setup_kaggle_credentials(username, key, acc.get("token"))
 
+        # Liệt kê tất cả kernel của tài khoản để xem các phiên GPU đang chiếm dụng
+        if acc.get("token"):
+            try:
+                url = "https://api.kaggle.com/v1/kernels.KernelsApiService/ListKernels"
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps({"group": "PROFILE", "pageSize": 10}).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {acc['token']}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    kdata = json.loads(resp.read().decode("utf-8"))
+                    print(f"   [Kaggle Profile Kernels] Tìm thấy {len(kdata.get('kernels', []))} kernels:")
+                    for k in kdata.get("kernels", []):
+                        print(f"      * Ref: {k.get('ref')} | Status: {k.get('status')} | TotalRunTime: {k.get('totalRunTime')}s | LastRunTime: {k.get('lastRunTime')}")
+            except Exception as e:
+                print(f"   [Kaggle Profile Kernels] Lỗi đọc danh sách kernels: {e}")
+
         # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp trừ khi FORCE_PUSH)
         is_running, status_msg = check_kernel_running(username)
         print(f"   [Kernel Status] Trạng thái hiện tại của {username}/{KERNEL_SLUG}: {status_msg}")
