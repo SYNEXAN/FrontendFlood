@@ -1,4 +1,4 @@
-name: Auto-Wake Kaggle GPU Backend
+    name: Auto-Wake Kaggle GPU Backend
 
     on:
       repository_dispatch:
