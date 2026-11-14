@@ -239,6 +239,39 @@ def find_running_backend(username):
     return None, None
 
 
+def check_all_account_kernels(username):
+    """Quét toàn bộ danh sách kernels của tài khoản để tìm xem phiên nào đang chiếm slot GPU."""
+    print(f"🔍 [Audit] Đang quét toàn bộ danh sách kernels của '{username}'...")
+    active_sessions = []
+    try:
+        proc = subprocess.run(
+            ["kaggle", "kernels", "list", "--mine", "--page-size", "20"],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        lines = proc.stdout.strip().splitlines()
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 1 and "/" in parts[0]:
+                kref = parts[0].strip()
+                if username.lower() in kref.lower():
+                    st_p = subprocess.run(["kaggle", "kernels", "status", kref], capture_output=True, text=True, timeout=10)
+                    st_text = (st_p.stdout + st_p.stderr).strip()
+                    lower_st = st_text.lower()
+                    print(f"      * {kref} -> {st_text}")
+                    if "running" in lower_st or "queued" in lower_st:
+                        active_sessions.append((kref, st_text))
+                        # Tự động dọn dẹp nếu là kernel ngập lụt cũ đang bị kẹt QUEUED
+                        if "synexan-flood" in kref.lower() and "queued" in lower_st:
+                            print(f"   🗑️ Tự động xóa kernel ngập lụt bị kẹt hàng đợi: {kref}")
+                            subprocess.run(["kaggle", "kernels", "delete", "-y", kref], capture_output=True, text=True, timeout=10)
+        print(f"   📊 Tổng số phiên GPU đang chạy/chờ của '{username}': {len(active_sessions)}")
+    except Exception as e:
+        print(f"   [Audit] Lỗi quét kernels: {e}")
+    return active_sessions
+
+
 def cleanup_stale_kernels(username, current_slug=None):
     """
     Tự động dọn dẹp các notebook synexan-flood-* cũ bị kẹt hàng đợi hoặc lỗi
@@ -371,6 +404,9 @@ def main():
 
         # 1. Cấu hình credentials
         setup_kaggle_credentials(username, key, acc.get("token"))
+
+        # Kiểm tra toàn diện các phiên đang chiếm GPU của tài khoản này
+        check_all_account_kernels(username)
 
         # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY KHÔNG (Quy tắc 1)
         running_ref, running_msg = find_running_backend(username)
