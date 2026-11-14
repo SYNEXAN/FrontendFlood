@@ -615,7 +615,9 @@ def main():
 
                     # Nếu sau 105s vẫn QUEUED:
                     if len(accounts) > 1 and idx < len(accounts):
-                        print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 105s. Kiểm tra tài khoản tiếp theo...")
+                        print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 105s. Hủy phiên kẹt để giải phóng slot và kiểm tra tài khoản tiếp theo...")
+                        subprocess.run([*KAGGLE_CMD, "kernels", "cancel", active_ref], capture_output=True, text=True, timeout=10)
+                        time.sleep(6)
                         continue
                     else:
                         print(f"⏳ Notebook '{active_ref}' tiếp tục xếp hàng trên Kaggle. Frontend sẽ tự kết nối khi GPU khởi động.")
@@ -672,7 +674,9 @@ def main():
 
                 # Nếu sau 105s vẫn QUEUED, xoay sang tài khoản tiếp theo nếu có
                 if len(accounts) > 1 and idx < len(accounts):
-                    print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 105s. Xoay sang tài khoản tiếp theo...")
+                    print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 105s. Hủy để giải phóng slot và xoay sang tài khoản tiếp theo...")
+                    subprocess.run([*KAGGLE_CMD, "kernels", "cancel", f"{username}/{new_slug}"], capture_output=True, text=True, timeout=10)
+                    time.sleep(6)
                     continue
                 else:
                     report_kernel_state("queued", f"Notebook '{new_slug}' đang xếp hàng nhận GPU. Frontend sẽ tự kết nối khi GPU sẵn sàng.", None, username)

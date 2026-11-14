@@ -11,6 +11,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: kaggle-gpu-wake
+  cancel-in-progress: true
+
 jobs:
   wake:
     runs-on: ubuntu-latest
