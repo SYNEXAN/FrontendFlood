@@ -467,7 +467,7 @@ def main():
                     report_kernel_state("limit", f"Tài khoản '{username}' đầy slot GPU. Đang tự động xoay sang tài khoản kế tiếp...", push_msg, username)
                     continue
                 else:
-                    report_kernel_state("error", f"Tài khoản '{username}' đã hết 2 slot GPU bởi các notebook khác. Vui lòng tắt bớt notebook.", push_msg, username)
+                    report_kernel_state("error", f"Tài khoản '{username}' đã đạt giới hạn 2 GPU sessions trên Kaggle (gồm phiên đang chờ hàng đợi và phiên có thể đang mở trên trình duyệt web). Vui lòng Stop session trên kaggle.com hoặc chờ giải phóng slot.", push_msg, username)
                     sys.exit(1)
             elif "quota" in lower_msg or "exceeded" in lower_msg or "limit" in lower_msg:
                 print(f"⚠️ [QUOTA EXCEEDED] Kaggle từ chối do hết quota: {push_msg}")
