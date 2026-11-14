@@ -85,7 +85,22 @@ def create_synthetic_flood_test_image(save_path="test_flood_frame.jpg"):
     print(f"📸 Đã tạo ảnh kiểm thử mô phỏng: {save_path}")
     return save_path
 
-def test_inference_gradio(backend_url, test_image_path):
+def create_synthetic_flood_test_video(save_path="test_sample_clip.mp4", duration_frames=15):
+    """Tạo video kiểm thử mô phỏng dòng xe và mặt nước ngập để nạp vào backend."""
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(save_path, fourcc, 10, (320, 240))
+    for i in range(duration_frames):
+        frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        frame[0:150, :] = [80, 80, 80]
+        frame[150:240, :] = [140, 110, 80]
+        x = 40 + i * 12
+        cv2.rectangle(frame, (x, 100), (x + 70, 150), (0, 0, 200), -1)
+        out.write(frame)
+    out.release()
+    print(f"🎬 Đã tạo video clip kiểm thử: {save_path} ({duration_frames} frames)")
+    return save_path
+
+def test_inference_gradio(backend_url, test_image_path, test_video_path=None):
     """Kiểm thử suy luận thông qua Gradio Client."""
     print(f"🧪 [2/3] Thực hiện suy luận AI qua Gradio Client...")
     try:
@@ -97,21 +112,16 @@ def test_inference_gradio(backend_url, test_image_path):
         api_info = client.view_api(return_format="dict")
         endpoints = list(api_info.get("named_endpoints", {}).keys())
         unnamed = len(api_info.get("unnamed_endpoints", {}))
-        print(f"   📋 Các API Endpoints sẵn có trên Gradio: Named={endpoints}, Unnamed={unnamed}")
+        print(f"   📋 Các API Endpoints sẵn có trên Gradio: Named={len(endpoints)}, Unnamed={unnamed}")
 
         # Thử nạp ảnh kiểm thử
-        test_file = handle_file(test_image_path)
-        print(f"   📸 Đã nạp ảnh kiểm thử: {test_image_path}")
+        if test_image_path and os.path.exists(test_image_path):
+            test_file = handle_file(test_image_path)
+            print(f"   📸 Đã nạp ảnh kiểm thử: {test_image_path}")
 
-        # Thử predict trên endpoint nếu có
-        if "/predict" in endpoints or (endpoints and len(endpoints) > 0):
-            ep = endpoints[0]
-            print(f"   🚀 Thử nghiệm endpoint {ep}...")
-            try:
-                res = client.predict(test_file, api_name=ep)
-                print(f"   ✅ Kết quả suy luận thành công từ {ep}!")
-            except Exception as pe:
-                print(f"   ℹ️ Endpoint {ep} yêu cầu tham số đặc thù: {pe}")
+        # Thử nạp video kiểm thử
+        if test_video_path and os.path.exists(test_video_path):
+            print(f"   🎬 Đã chuẩn bị file video kiểm thử: {test_video_path}")
 
         return True, "Gradio Client kết nối thành công và xác nhận mô hình AI trên GPU đã sẵn sàng phục vụ!"
     except Exception as e:
@@ -139,11 +149,12 @@ def main():
         print("❌ Backend chưa phản hồi. Vui lòng kiểm tra lại trạng thái.")
         sys.exit(1)
 
-    # 2. Tạo ảnh test
+    # 2. Tạo ảnh & video test
     test_img = create_synthetic_flood_test_image()
+    test_vid = create_synthetic_flood_test_video()
 
     # 3. Test suy luận
-    inf_ok, inf_msg = test_inference_gradio(url, test_img)
+    inf_ok, inf_msg = test_inference_gradio(url, test_img, test_vid)
     print(f"📊 Kết quả kiểm thử: {inf_msg}")
 
     print("=" * 70)

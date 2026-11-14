@@ -211,8 +211,21 @@ app.get('/api/status', async (req, res) => {
 });
 
 // Endpoint bảo mật kích hoạt GitHub Actions tự động xoay vòng & khởi động GPU Kaggle
+let lastWakeTime = 0;
 app.post('/api/wake-gpu', async (req, res) => {
     try {
+        const isForce = !!(req.body && (req.body.force === true || req.body.force === 'true'));
+        const now = Date.now();
+        if (!isForce && now - lastWakeTime < 30000) {
+            console.log('[INFO] ⏳ Wake GPU request ignored (rate limit: 30s cooldown).');
+            return res.json({
+                success: true,
+                message: 'Yêu cầu khởi động GPU đang được xử lý, vui lòng chờ trong giây lát...',
+                cooldown: true
+            });
+        }
+        lastWakeTime = now;
+
         let ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
         let ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
 
