@@ -4,6 +4,12 @@ on:
   repository_dispatch:
     types: [wake-kaggle]
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bắt buộc push kernel mới (ghi đè phiên cũ)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   wake:
@@ -27,5 +33,6 @@ jobs:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
           MIN_GPU_HOURS_THRESHOLD: '1.0'
+          FORCE_PUSH: ${{ inputs.force || github.event.client_payload.force || 'false' }}
         run: |
           python scripts/rotate_kaggle.py

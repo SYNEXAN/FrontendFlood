@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
 MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0"))
+FORCE_PUSH = os.environ.get("FORCE_PUSH", "false").lower() in ("true", "1", "yes")
 KERNEL_SLUG = "synexan-flood-backend-gpu"
 
 
@@ -249,13 +250,15 @@ def main():
         # 1. Cấu hình credentials
         setup_kaggle_credentials(username, key, acc.get("token"))
 
-        # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp)
+        # 2. Kiểm tra phiên đang chạy (tránh push trùng lặp trừ khi FORCE_PUSH)
         is_running, status_msg = check_kernel_running(username)
-        if is_running:
+        if is_running and not FORCE_PUSH:
             print(f"⚡ [TIẾT KIỆM QUOTA] Kernel của '{username}' ĐANG CHẠY ({status_msg})!")
             print("👉 Giữ nguyên phiên hiện tại, không cần push lại.")
             print("=" * 70)
             sys.exit(0)
+        elif is_running and FORCE_PUSH:
+            print(f"⚠️ [FORCE PUSH] Kernel của '{username}' đang chạy ({status_msg}) nhưng FORCE_PUSH được kích hoạt. Đang đẩy code mới...")
 
         # 3. Kiểm tra quota còn lại
         remaining_hours = get_remaining_gpu_hours()
