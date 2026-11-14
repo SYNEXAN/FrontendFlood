@@ -436,6 +436,12 @@ def main():
 
         if active_status == "RUNNING":
             print(f"🎉 [TÁI SỬ DỤNG] Phát hiện máy chủ GPU đang chạy: {active_ref} ({active_msg})!")
+            # In thử 20 dòng log mới nhất của kernel đang chạy để kiểm tra
+            try:
+                log_p = subprocess.run(["kaggle", "kernels", "logs", active_ref], capture_output=True, text=True, timeout=10)
+                print(f"📄 [Kernel Logs {active_ref}]:\n{log_p.stdout[-1500:] if log_p.stdout else '(Trống)'}")
+            except Exception as le:
+                print(f"   [Logs error]: {le}")
             print("👉 Giữ nguyên phiên đang chạy, kết nối trực tiếp không cần khởi động lại.")
             report_kernel_state("running", f"Máy chủ GPU '{active_ref}' đang chạy ổn định. Đang kết nối trực tiếp...", active_msg, username)
             print("=" * 70)
