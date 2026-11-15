@@ -268,29 +268,18 @@ app.post('/api/backend-url', async (req, res) => {
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
 
-        // Nếu nhận heartbeat từ kernel phiên bản cũ (chưa phải v5_root_clean), tự động gửi lệnh /shutdown
-        // để vòng lặp Auto-Heal trên Kaggle tự git pull và nâng cấp lên v5_root_clean ngay lập tức!
-        if (version !== 'v5_root_clean') {
-            const lastTrig = legacyUpgradeTriggeredMap.get(cleanUrl) || 0;
-            if (Date.now() - lastTrig > 90000) {
-                legacyUpgradeTriggeredMap.set(cleanUrl, Date.now());
-                fetch(cleanUrl + '/shutdown', {
-                    method: 'GET',
-                    headers: { 'User-Agent': 'Mozilla/5.0' },
-                    signal: AbortSignal.timeout(4000)
-                }).catch(() => {});
-                console.log(`[AUTO-UPGRADE] 🔄 Đã gửi tín hiệu tự nâng cấp lên v5_root_clean tới kernel cũ: ${cleanUrl} (${version || 'v1'})`);
-            }
-            if (storedVersion === 'v5_root_clean' && currentUrl) {
+        // Nếu nhận heartbeat từ kernel phiên bản cũ (chưa phải v6_intact_props), từ chối nếu đã có bản v6_intact_props
+        if (version !== 'v6_intact_props') {
+            if (storedVersion === 'v6_intact_props' && currentUrl) {
                 return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
             }
         }
 
-        // Nếu phiên mới là v5_root_clean còn phiên đang lưu chưa phải v5_root_clean -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV5 = (version === 'v5_root_clean' && storedVersion !== 'v5_root_clean');
+        // Nếu phiên mới là v6_intact_props còn phiên đang lưu chưa phải v6_intact_props -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV6 = (version === 'v6_intact_props' && storedVersion !== 'v6_intact_props');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV5 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        if (!isUpgradeToV6 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -298,8 +287,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        if (version === 'v5_root_clean') {
-            activeBackendVersion = 'v5_root_clean';
+        if (version === 'v6_intact_props') {
+            activeBackendVersion = 'v6_intact_props';
         }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({

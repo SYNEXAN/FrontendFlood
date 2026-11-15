@@ -3,9 +3,11 @@
 Synexan AI Root-Level UI & Smooth Stream Injector (v5_root_clean)
 1. Installs sitecustomize.py into Python site-packages so app.py ALWAYS loads
    install_gradio_runtime_hooks() at Python startup before Gradio initializes.
-2. Hooks Gradio in Python memory (gr.Blocks.get_config_file, gr.Slider, gr.State, gr.HTML)
-   so all emojis/icons, "Hướng dẫn gán mốc..." and strip_width=20 are sanitized AT THE ROOT
-   on the Python server before any HTML/JSON is ever generated.
+2. Hooks gr.Blocks.get_config_file (without altering Component.__init__ signatures
+   used by Gradio's ComponentMeta) so all block objects AND config JSON have:
+   - 0 emojis/icons anywhere
+   - tab5_setup_status / traffic_setup_status / fusion_setup_status emptied & hidden
+   - "Bề rộng cột mốc" slider value=4 and state strip_width=4
 3. Injects smooth_stream_patch.js right at the top of <head> in all Gradio HTML templates
    (index.html and share.html) so Pre-Render sanitization runs at 0ms with zero flash on reload.
 4. Ensures 100% zero modifications to the backend/ folder.
@@ -36,6 +38,35 @@ def clean_text_py(val):
     cleaned = re.sub(r"(#+\s*)\s+", r"\1", cleaned)
     cleaned = re.sub(r">\s+", ">", cleaned)
     return cleaned.lstrip()
+
+
+def sanitize_blocks_in_memory(blocks_instance):
+    """Sanitize live Gradio Block instances in demo.blocks before get_config_file serializes them."""
+    try:
+        blocks_dict = getattr(blocks_instance, "blocks", {}) or {}
+        for b in blocks_dict.values():
+            elem_id = getattr(b, "elem_id", None)
+            if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
+                b.value = ""
+                b.visible = False
+
+            lbl = getattr(b, "label", None)
+            if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
+                b.value = getattr(b, "minimum", 4) or 4
+
+            val = getattr(b, "value", None)
+            if isinstance(val, dict) and "strip_width" in val:
+                val["strip_width"] = 4
+
+            for attr in ("label", "value", "title", "info", "placeholder"):
+                cur = getattr(b, attr, None)
+                if isinstance(cur, str):
+                    try:
+                        setattr(b, attr, clean_text_py(cur))
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"⚠️ [Sanitize Blocks] {e}")
 
 
 def sanitize_config_dict_py(cfg):
@@ -86,55 +117,15 @@ def sanitize_config_dict_py(cfg):
 
 
 def install_gradio_runtime_hooks():
-    """Hook Gradio classes in Python memory so emojis, guide text, and strip_width=4 are applied at the root."""
+    """Hook gr.Blocks.get_config_file without modifying Component.__init__ signatures."""
     try:
         import gradio as gr
-
-        if not getattr(gr.Slider, "_synexan_hooked", False):
-            orig_slider_init = gr.Slider.__init__
-
-            def hooked_slider_init(self, *args, **kwargs):
-                lbl = str(kwargs.get("label", "") or "")
-                if "Bề rộng cột mốc" in lbl:
-                    kwargs["value"] = kwargs.get("minimum", 4)
-                if "label" in kwargs and isinstance(kwargs["label"], str):
-                    kwargs["label"] = clean_text_py(kwargs["label"])
-                return orig_slider_init(self, *args, **kwargs)
-
-            gr.Slider.__init__ = hooked_slider_init
-            gr.Slider._synexan_hooked = True
-
-        if not getattr(gr.State, "_synexan_hooked", False):
-            orig_state_init = gr.State.__init__
-
-            def hooked_state_init(self, value=None, *args, **kwargs):
-                if isinstance(value, dict) and "strip_width" in value:
-                    value = dict(value)
-                    value["strip_width"] = 4
-                return orig_state_init(self, value=value, *args, **kwargs)
-
-            gr.State.__init__ = hooked_state_init
-            gr.State._synexan_hooked = True
-
-        if not getattr(gr.HTML, "_synexan_hooked", False):
-            orig_html_init = gr.HTML.__init__
-
-            def hooked_html_init(self, value="", *args, **kwargs):
-                elem_id = kwargs.get("elem_id")
-                if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
-                    value = ""
-                    kwargs["visible"] = False
-                elif isinstance(value, str):
-                    value = clean_text_py(value)
-                return orig_html_init(self, value=value, *args, **kwargs)
-
-            gr.HTML.__init__ = hooked_html_init
-            gr.HTML._synexan_hooked = True
 
         if not getattr(gr.Blocks, "_synexan_hooked", False):
             orig_get_config = gr.Blocks.get_config_file
 
             def hooked_get_config_file(self, *args, **kwargs):
+                sanitize_blocks_in_memory(self)
                 cfg = orig_get_config(self, *args, **kwargs)
                 return sanitize_config_dict_py(cfg)
 
@@ -269,7 +260,7 @@ def start_v5_webhook_reporter():
             "    if url:\n"
             "        for ep in webhooks:\n"
             "            try:\n"
-            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v5_root_clean'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v6_intact_props'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
             "                urllib.request.urlopen(req, timeout=8)\n"
             "            except Exception: pass\n"
         )

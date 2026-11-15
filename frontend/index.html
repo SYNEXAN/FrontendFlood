@@ -872,14 +872,14 @@
     // KIỂM TRA ONLINE BACKEND API MODEL (STICKY SESSION LOCK - KHÔNG ĐỔI URL KHI ĐANG SỐNG)
     // ========================================================================
     async function checkBackendOnline() {
-      // Nếu trình duyệt đang giữ phiên cũ chưa phải v5_root_clean, kiểm tra xem Server đã có v5_root_clean chưa (chỉ nâng cấp đúng 1 lần duy nhất)
-      if (loadedFrameUrl && window.loadedBackendVersion !== "v5_root_clean") {
+      // Nếu trình duyệt đang giữ phiên cũ chưa phải v6_intact_props, kiểm tra xem Server đã có v6_intact_props chưa (chỉ nâng cấp đúng 1 lần duy nhất)
+      if (loadedFrameUrl && window.loadedBackendVersion !== "v6_intact_props") {
         try {
           const upRes = await fetch("/api/config", { cache: "no-store" });
           if (upRes.ok) {
             const upCfg = await upRes.json();
-            if (upCfg && upCfg.kernelLog && upCfg.kernelLog.version === "v5_root_clean" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
-              window.loadedBackendVersion = "v5_root_clean";
+            if (upCfg && upCfg.kernelLog && upCfg.kernelLog.version === "v6_intact_props" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
+              window.loadedBackendVersion = "v6_intact_props";
               if (!isFrameLoadedWith(upCfg.defaultBackendUrl)) {
                 DEFAULT_CONFIG.backendUrl = upCfg.defaultBackendUrl;
                 localStorage.setItem("synexan_active_backend_url", upCfg.defaultBackendUrl);
@@ -919,8 +919,8 @@
         const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
           const cfg = await cfgRes.json();
-          if (cfg && cfg.kernelLog && cfg.kernelLog.version === "v5_root_clean") {
-            window.loadedBackendVersion = "v5_root_clean";
+          if (cfg && cfg.kernelLog && cfg.kernelLog.version === "v6_intact_props") {
+            window.loadedBackendVersion = "v6_intact_props";
           }
           if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             serverHasUrl = true;
