@@ -336,7 +336,7 @@ app.get('/api/config', async (req, res) => {
 // CAMERA PRESETS PERSISTENCE API (LƯU CỐ ĐỊNH MỐC & LÀN ĐƯỜNG CHO TỪNG CAMERA)
 // ============================================================================
 let localCameraPresets = {};
-const TMP_CAMERA_PRESETS_FILE = path.join(os.tmpdir(), 'synexan_camera_presets.json');
+const TMP_CAMERA_PRESETS_FILE = '/tmp/synexan_camera_presets.json';
 const REPO_CAMERA_PRESETS_FILE = path.join(__dirname, '..', 'scripts', 'camera_presets.json');
 
 async function getStoredCameraPresets() {
