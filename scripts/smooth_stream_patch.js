@@ -2,13 +2,93 @@
 // SYNEXAN ULTRA-SMOOTH JITTER BUFFER VIDEO RENDERER (GPU ACCELERATED CANVAS)
 // ==============================================================================
 // Tối ưu hóa hiển thị luồng video AI trên Gradio bằng HTML5 Canvas và Hardware GPU.
-// Sử dụng hàng đợi FIFO (Ring Buffer) 4-6 frames để triệt tiêu biến thiên mạng (jitter),
-// kết hợp requestAnimationFrame giữ nhịp 30 FPS đều đặn và gửi telemetry về Parent Window.
+// Tự động nhúng badge hiển thị FPS & Độ trễ vào ngay thanh tiêu đề "Màn Hình Video",
+// loại bỏ hoàn toàn các icon/emoji để giao diện đạt chuẩn chuyên nghiệp và thanh lịch.
 
 (function() {
   'use strict';
 
   console.log('🚀 [Synexan Smooth Stream] Khởi động Bộ đệm Jitter Buffer...');
+
+  let globalLatestFps = 0;
+  let globalLatestLatency = 71;
+
+  function updateHeaderBadges(fpsVal, latencyMs) {
+    if (typeof latencyMs === 'number' && latencyMs > 0) globalLatestLatency = latencyMs;
+    if (typeof fpsVal === 'number') globalLatestFps = fpsVal;
+
+    const text = globalLatestFps > 0 
+      ? `${globalLatestFps} FPS | Độ trễ: ${globalLatestLatency}ms`
+      : `Standby | Độ trễ: ${globalLatestLatency}ms`;
+
+    const badges = document.querySelectorAll('.synexan-header-perf-badge');
+    badges.forEach((b) => {
+      b.textContent = text;
+      b.style.color = globalLatestFps >= 25 ? '#34d399' : (globalLatestFps > 0 ? '#38bdf8' : '#94a3b8');
+      b.style.borderColor = globalLatestFps > 0 ? 'rgba(56, 189, 248, 0.4)' : 'rgba(148, 163, 184, 0.3)';
+    });
+  }
+
+  function attachHeaderPerfBadges() {
+    // Quét tìm các phần tử tiêu đề chứa "Màn Hình Video" hoặc "Màn Hình Giám Sát"
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, .prose h4, .prose *');
+    headings.forEach((el) => {
+      const text = el.textContent || '';
+      if (text.includes('Màn Hình Video') || text.includes('Màn Hình Giám Sát')) {
+        // 1. Loại bỏ các emoji/icons (như 🖼️, ⚡) trong tiêu đề để giao diện sạch sẽ
+        if (el.innerHTML.includes('🖼️') || el.innerHTML.includes('⚡')) {
+          el.innerHTML = el.innerHTML.replace(/[🖼️⚡]\s*/g, '');
+        }
+
+        // 2. Chuyển tiêu đề thành flexbox để badge dạt sang góc phải ngay ngắn
+        el.style.display = 'flex';
+        el.style.justifyContent = 'space-between';
+        el.style.alignItems = 'center';
+        el.style.width = '100%';
+        el.style.flexWrap = 'wrap';
+        el.style.gap = '8px';
+
+        // 3. Nếu chưa gắn badge, tạo mới và gắn vào góc phải
+        if (!el.querySelector('.synexan-header-perf-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'synexan-header-perf-badge';
+          badge.style.cssText = `
+            font-size: 12px;
+            font-weight: 600;
+            color: #94a3b8;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 6px;
+            padding: 3px 10px;
+            letter-spacing: 0.3px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+            user-select: none;
+            white-space: nowrap;
+          `;
+          const initText = globalLatestFps > 0 
+            ? `${globalLatestFps} FPS | Độ trễ: ${globalLatestLatency}ms`
+            : `Standby | Độ trễ: ${globalLatestLatency}ms`;
+          badge.textContent = initText;
+          el.appendChild(badge);
+        }
+      }
+    });
+  }
+
+  // Quét định kỳ mỗi 800ms để gắn badge khi người dùng chuyển qua lại các Tab
+  setInterval(attachHeaderPerfBadges, 800);
+  window.addEventListener('DOMContentLoaded', attachHeaderPerfBadges);
+
+  // Lắng nghe cập nhật ping khứ hồi từ Parent Window
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'PING_UPDATE') {
+      const pingVal = event.data.latencyMs;
+      if (typeof pingVal === 'number' && pingVal > 0) {
+        updateHeaderBadges(globalLatestFps, pingVal);
+      }
+    }
+  });
 
   class SynexanJitterBuffer {
     constructor(targetFps = 30, targetBuffer = 5) {
@@ -93,6 +173,7 @@
         if (this.queue.length === 0) {
           this.isPlaying = false;
           this.emitTelemetry('idle');
+          updateHeaderBadges(0, globalLatestLatency);
         }
       }, 2500);
 
@@ -128,10 +209,10 @@
             this.ctx.drawImage(frame, 0, 0);
             this.fpsCounter++;
 
-            // Vẽ HUD Badge: FPS & Độ trễ trực tiếp trên góc trên bên phải của video
+            // Vẽ HUD Badge: FPS & Độ trễ trực tiếp trên góc trên bên phải của video (Không icon)
             const fpsVal = this.currentFps > 0 ? this.currentFps : 30;
-            const latVal = Math.round(this.queue.length * this.frameIntervalMs + 65);
-            const hudText = `⚡ ${fpsVal} FPS • ${latVal}ms`;
+            const latVal = Math.round(this.queue.length * this.frameIntervalMs + globalLatestLatency);
+            const hudText = `${fpsVal} FPS | Độ trễ: ${latVal}ms`;
             this.ctx.save();
             this.ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
             const textWidth = this.ctx.measureText(hudText).width;
@@ -162,6 +243,7 @@
         this.fpsCounter = 0;
         this.fpsTimer = now;
         this.emitTelemetry('active');
+        updateHeaderBadges(this.currentFps, globalLatestLatency);
       }
 
       requestAnimationFrame(this.renderLoop.bind(this));
@@ -170,7 +252,7 @@
     emitTelemetry(mode = 'active') {
       try {
         const fpsVal = (mode === 'active' && this.currentFps > 0) ? this.currentFps : 0;
-        const latVal = Math.round(this.queue.length * this.frameIntervalMs + 65);
+        const latVal = Math.round(this.queue.length * this.frameIntervalMs + globalLatestLatency);
         const payload = {
           type: 'STREAM_HEALTH',
           fps: fpsVal,
@@ -186,7 +268,6 @@
 
   // Tự động tìm kiếm các phần tử hình ảnh output trong Gradio và kích hoạt Jitter Buffer
   function autoAttachJitterBuffer() {
-    // Tìm các thẻ img của Gradio có chứa class hoặc thuộc tính hiển thị kết quả
     const candidateImages = document.querySelectorAll('img[data-testid="detailed-image"], .image-container img, .output-image img, div[data-testid="image"] img');
     candidateImages.forEach((img) => {
       if (!img.__synexanAttached) {
