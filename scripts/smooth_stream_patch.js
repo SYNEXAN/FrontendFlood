@@ -266,6 +266,166 @@
     }
   }
 
+  // ==============================================================================
+  // SYNEXAN SINGLE SCREEN MANAGER (CHẾ ĐỘ DỰ ĐOÁN ẢNH 1 MÀN HÌNH - GHI ĐÈ KẾT QUẢ)
+  // ==============================================================================
+  // Tự động phát hiện khi người dùng ở Tab "Ảnh":
+  // 1. Ẩn cột màn hình phụ bên phải (#tab5_calib_canvas, #traffic_canvas, #fusion_canvas).
+  // 2. Khi AI hoàn tất và sinh ảnh dự đoán, tự động cập nhật và ghi đè ảnh kết quả
+  //    trực tiếp lên màn hình tải ảnh bên trái kèm huy hiệu "Kết quả AI phân tích".
+  // 3. Tự động hiển thị lại cột video bên phải khi chuyển sang Tab "Video" hoặc "Camera".
+
+  function initSingleScreenPredictionManager() {
+    // 1. Lắng nghe sự kiện click trên các nút chuyển Tab con (Ảnh / Video / Camera)
+    const tabButtons = document.querySelectorAll('button[role="tab"], .tab-nav button');
+    let isImageTabActive = false;
+
+    tabButtons.forEach((btn) => {
+      const text = (btn.textContent || '').trim();
+      if (text === 'Ảnh' || text.includes('Ảnh')) {
+        if (btn.classList.contains('selected') || btn.getAttribute('aria-selected') === 'true') {
+          isImageTabActive = true;
+        }
+        if (!btn.__synexanListener) {
+          btn.__synexanListener = true;
+          btn.addEventListener('click', () => {
+            setTimeout(() => applySingleScreenMode(true), 150);
+          });
+        }
+      } else if (text === 'Video' || text.includes('Video') || text === 'Camera' || text.includes('Camera')) {
+        if (!btn.__synexanListener) {
+          btn.__synexanListener = true;
+          btn.addEventListener('click', () => {
+            setTimeout(() => applySingleScreenMode(false), 150);
+          });
+        }
+      }
+    });
+
+    // 2. Tìm kiếm container của các canvas kết quả (#tab5_calib_canvas, #traffic_canvas, #fusion_canvas)
+    const canvasIds = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
+    canvasIds.forEach((id) => {
+      const canvasElem = document.getElementById(id);
+      if (!canvasElem) return;
+
+      // Tìm cột cha bên phải (enclosing column)
+      let rightCol = canvasElem.closest('.column, .gr-column');
+      if (!rightCol) {
+        let p = canvasElem.parentElement;
+        while (p && p !== document.body) {
+          if (p.textContent && (p.textContent.includes('2. Màn Hình Video') || p.textContent.includes('Khung hình video'))) {
+            rightCol = p;
+            break;
+          }
+          p = p.parentElement;
+        }
+      }
+
+      // Nếu đang ở Tab Ảnh -> ẩn cột bên phải
+      if (isImageTabActive && rightCol) {
+        rightCol.style.display = 'none';
+        rightCol.__synexanHiddenByImageTab = true;
+        syncPredictionToLeftScreen(canvasElem);
+      } else if (!isImageTabActive && rightCol && rightCol.__synexanHiddenByImageTab) {
+        rightCol.style.display = '';
+        rightCol.__synexanHiddenByImageTab = false;
+      }
+
+      // Theo dõi kết quả AI phân tích xuất hiện trong canvas
+      if (!canvasElem.__synexanObserverAttached) {
+        canvasElem.__synexanObserverAttached = true;
+        const observer = new MutationObserver(() => {
+          syncPredictionToLeftScreen(canvasElem);
+        });
+        observer.observe(canvasElem, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+      }
+    });
+  }
+
+  function applySingleScreenMode(isImageMode) {
+    const canvasIds = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
+    canvasIds.forEach((id) => {
+      const canvasElem = document.getElementById(id);
+      if (!canvasElem) return;
+
+      let rightCol = canvasElem.closest('.column, .gr-column');
+      if (!rightCol) {
+        let p = canvasElem.parentElement;
+        while (p && p !== document.body) {
+          if (p.textContent && (p.textContent.includes('2. Màn Hình Video') || p.textContent.includes('Khung hình video'))) {
+            rightCol = p;
+            break;
+          }
+          p = p.parentElement;
+        }
+      }
+
+      if (rightCol) {
+        if (isImageMode) {
+          rightCol.style.display = 'none';
+          rightCol.__synexanHiddenByImageTab = true;
+          syncPredictionToLeftScreen(canvasElem);
+        } else {
+          rightCol.style.display = '';
+          rightCol.__synexanHiddenByImageTab = false;
+        }
+      }
+    });
+  }
+
+  function syncPredictionToLeftScreen(canvasElem) {
+    if (!canvasElem) return;
+    const outputImg = canvasElem.querySelector('img[src], canvas');
+    if (!outputImg) return;
+
+    let outputSrc = '';
+    if (outputImg.tagName && outputImg.tagName.toLowerCase() === 'img') {
+      outputSrc = outputImg.src || outputImg.getAttribute('src');
+    } else if (outputImg.tagName && outputImg.tagName.toLowerCase() === 'canvas') {
+      try { outputSrc = outputImg.toDataURL(); } catch (e) {}
+    }
+
+    if (!outputSrc || outputSrc.length < 50) return;
+
+    const activeTab = document.querySelector('.tabitem:not([style*="display: none"]), div[role="tabpanel"]:not([style*="display: none"])');
+    if (!activeTab) return;
+
+    const inputImgElem = activeTab.querySelector('div[data-testid="image"] img, .image-container img, input[type="file"] ~ img');
+    if (inputImgElem && inputImgElem.src !== outputSrc) {
+      inputImgElem.src = outputSrc;
+      inputImgElem.setAttribute('src', outputSrc);
+      console.log('✅ [Synexan Single Screen] Đã ghi đè kết quả phân tích AI lên màn hình ảnh bên trái!');
+
+      const parentWrap = inputImgElem.parentElement;
+      if (parentWrap && !parentWrap.querySelector('.synexan-ai-badge')) {
+        parentWrap.style.position = 'relative';
+        const badge = document.createElement('span');
+        badge.className = 'synexan-ai-badge';
+        badge.textContent = 'Kết quả AI phân tích';
+        badge.style.cssText = `
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: rgba(16, 185, 129, 0.9);
+          color: #ffffff;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 6px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+          z-index: 100;
+          pointer-events: none;
+          letter-spacing: 0.3px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+        parentWrap.appendChild(badge);
+      }
+    }
+  }
+
+  setInterval(initSingleScreenPredictionManager, 1000);
+  window.addEventListener('DOMContentLoaded', initSingleScreenPredictionManager);
+
   // Tự động tìm kiếm các phần tử hình ảnh output trong Gradio và kích hoạt Jitter Buffer
   function autoAttachJitterBuffer() {
     const candidateImages = document.querySelectorAll('img[data-testid="detailed-image"], .image-container img, .output-image img, div[data-testid="image"] img');

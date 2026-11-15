@@ -196,48 +196,137 @@
     }
 
     .overlay-card {
-      background: rgba(15, 23, 42, 0.8);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 28px;
-      padding: 36px 40px;
-      max-width: 580px;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 24px 28px;
+      max-width: 440px;
       width: 100%;
       text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 40px rgba(37, 99, 235, 0.15);
-      position: relative;
-    }
-
-    .brand-icon-box {
-      width: 68px;
-      height: 68px;
-      margin: 0 auto 20px;
-      border-radius: 22px;
-      background: linear-gradient(135deg, #0284c7, #3b82f6, #6366f1);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 32px;
-      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(37, 99, 235, 0.12);
       position: relative;
     }
 
     .status-text {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      margin-bottom: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin-bottom: 6px;
       background: linear-gradient(to right, #60a5fa, #38bdf8, #a5b4fc);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
     .sub-text {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-muted);
-      line-height: 1.6;
-      margin-bottom: 24px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+
+    /* Minimal Progress Track & Badge */
+    .progress-bar-track {
+      width: 100%;
+      height: 4px;
+      background: rgba(51, 65, 85, 0.5);
+      border-radius: 9999px;
+      overflow: hidden;
+      margin-bottom: 14px;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 25%;
+      background: linear-gradient(90deg, #38bdf8, #3b82f6, #10b981);
+      border-radius: 9999px;
+      transition: width 0.4s ease;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    }
+
+    .current-step-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(30, 41, 59, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 8px;
+      padding: 8px 12px;
+      width: 100%;
+      margin-bottom: 14px;
+      font-size: 12.5px;
+      color: #cbd5e1;
+      text-align: left;
+    }
+
+    .compact-kaggle-bar {
+      margin-top: 8px;
+      width: 100%;
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .compact-kaggle-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+
+    .compact-kaggle-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-kaggle-quick {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 7px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+      white-space: nowrap;
+    }
+
+    .btn-kaggle-quick:hover {
+      background: linear-gradient(135deg, #0369a1, #1d4ed8);
+      transform: translateY(-1px);
+    }
+
+    .btn-kaggle-sub {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(51, 65, 85, 0.7);
+      color: #cbd5e1;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 10px;
+      border-radius: 7px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .btn-kaggle-sub:hover {
+      background: rgba(71, 85, 105, 0.85);
+      color: #ffffff;
     }
 
     /* Big Action Button on Overlay */
@@ -564,20 +653,27 @@
 
 
   <!-- 100% Direct Gradio Interface Embed (No Interstitial Overlay) -->
-  <!-- LOADING & ACTIVATION OVERLAY -->
+  <!-- LOADING & ACTIVATION OVERLAY (TINH GỌN - HIỆN ĐẠI - ZERO ICON CLUTTER) -->
   <div id="loading-overlay">
     <div class="overlay-card">
-      <div class="brand-icon-box">
-        🌊
-      </div>
-      
       <div class="status-text">AI Urban Flood & Traffic Monitor</div>
       <div class="sub-text" id="overlaySubText">
-        Đang chờ kết nối từ Backend GPU...
+        Đang kết nối Backend GPU Tesla T4...
       </div>
 
-      <!-- Trạng thái các bước khởi chạy tự động (4 bước) -->
-      <div class="steps-container" id="stepsContainer" style="display: block; width: 100%; max-width: 440px;">
+      <!-- Khung hiển thị bước hoạt động hiện tại (1 Dòng duy nhất) -->
+      <div class="current-step-badge">
+        <span class="status-dot pulsing" style="width: 8px; height: 8px; margin: 0;"></span>
+        <span id="overlayActiveStepText">Đang khởi tạo kết nối backend GPU...</span>
+      </div>
+
+      <!-- Thanh tiến trình mỏng tinh tế -->
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="overlayProgressBarFill" style="width: 25%;"></div>
+      </div>
+
+      <!-- Trạng thái các bước chạy (Ẩn ngầm để tương thích ngược 100%) -->
+      <div class="steps-container" id="stepsContainer" style="display: none;">
         <div class="step-item running" id="step-1">
           <div class="step-icon"><i class="fa-solid fa-spinner fa-spin"></i></div>
           <div class="step-desc">1. Đang gửi tín hiệu khởi động GPU (Zero-Leak)...</div>
@@ -596,25 +692,15 @@
         </div>
       </div>
 
-      <!-- KHUNG LIÊN KẾT KAGGLE NOTEBOOK PUBLIC (CHẠY THỦ CÔNG GIỜ CAO ĐIỂM) -->
-      <div id="kagglePublicCard" style="margin-top: 18px; width: 100%; max-width: 440px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 14px 16px; text-align: left; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-          <div style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-            <i class="fa-solid fa-bolt" style="color: #fbbf24;"></i> Chạy thủ công ngay (0s chờ):
-          </div>
-          <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 8px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; letter-spacing: 0.5px;">
-            PUBLIC NOTEBOOK
-          </span>
-        </div>
-        <div style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 12px;">
-          Nếu hệ thống tự động đang xếp hàng giờ cao điểm, bạn có thể mở Notebook trên <b>bất kỳ tài khoản Kaggle nào</b> và nhấn <b>Run All</b> (cấp GPU T4 sau 3s). Web sẽ tự động mở giao diện ngay khi backend sẵn sàng!
-        </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <a id="btnOpenKagglePublic" href="https://www.kaggle.com/code/jtachitv/synexan-flood-backend-gpu" target="_blank" rel="noopener noreferrer" style="flex: 1; min-width: 190px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #0284c7, #2563eb); color: #ffffff; text-decoration: none; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 8px; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(37,99,235,0.35);">
-            <i class="fa-solid fa-arrow-up-right-from-square"></i> Mở Notebook trên Kaggle
+      <!-- HÀNG NÚT TÁC VỤ NHANH KAGGLE (CHẠY THỦ CÔNG GIỜ CAO ĐIỂM) -->
+      <div id="kagglePublicCard" class="compact-kaggle-bar">
+        <span class="compact-kaggle-label">Chạy thủ công (0s chờ):</span>
+        <div class="compact-kaggle-actions">
+          <a id="btnOpenKagglePublic" href="https://www.kaggle.com/code/thietnguyen/synexan-flood-backend-gpu" target="_blank" rel="noopener noreferrer" class="btn-kaggle-quick" title="Mở Notebook công khai trên Kaggle và nhấn Run All">
+            Mở Kaggle
           </a>
-          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: rgba(51, 65, 85, 0.8); color: #cbd5e1; text-decoration: none; font-size: 12px; font-weight: 500; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.2); transition: all 0.2s ease;">
-            <i class="fa-solid fa-download"></i> Tải .ipynb
+          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" class="btn-kaggle-sub" title="Tải tệp .ipynb trực tiếp">
+            Tải .ipynb
           </a>
         </div>
       </div>
@@ -751,17 +837,29 @@
 
     function updateStep(stepNum, status, message) {
       const stepElem = document.getElementById(`step-${stepNum}`);
-      if (!stepElem) return;
-      stepElem.className = `step-item ${status}`;
-      const descElem = stepElem.querySelector(".step-desc");
-      if (descElem && message) descElem.textContent = message;
+      if (stepElem) {
+        stepElem.className = `step-item ${status}`;
+        const descElem = stepElem.querySelector(".step-desc");
+        if (descElem && message) descElem.textContent = message;
 
-      const iconElem = stepElem.querySelector(".step-icon i");
-      if (iconElem) {
-        if (status === "running") iconElem.className = "fa-solid fa-spinner fa-spin";
-        else if (status === "done") iconElem.className = "fa-solid fa-check";
-        else if (status === "error") iconElem.className = "fa-solid fa-xmark";
-        else iconElem.className = "fa-solid fa-circle";
+        const iconElem = stepElem.querySelector(".step-icon i");
+        if (iconElem) {
+          if (status === "running") iconElem.className = "fa-solid fa-spinner fa-spin";
+          else if (status === "done") iconElem.className = "fa-solid fa-check";
+          else if (status === "error") iconElem.className = "fa-solid fa-xmark";
+          else iconElem.className = "fa-solid fa-circle";
+        }
+      }
+
+      // Cập nhật dòng trạng thái đơn và thanh tiến trình mỏng tinh tế
+      const stepTextElem = document.getElementById("overlayActiveStepText");
+      if (stepTextElem && message) {
+        stepTextElem.textContent = message;
+      }
+      const progressFill = document.getElementById("overlayProgressBarFill");
+      if (progressFill && typeof stepNum === "number") {
+        const pct = Math.min(100, Math.max(15, stepNum * 25));
+        progressFill.style.width = `${pct}%`;
       }
     }
 
@@ -824,7 +922,7 @@
       btnConnectApiOverlayText.textContent = "ĐANG KẾT NỐI GPU KAGGLE...";
 
       showOverlay();
-      stepsContainer.style.display = "block";
+      stepsContainer.style.display = "none";
       cmdBadgeWrapper.style.display = "none";
       overlaySubText.textContent = "Đang gửi yêu cầu kích hoạt GPU đến GitHub Actions (Zero-Leak)...";
 
