@@ -1,20 +1,52 @@
 // ==============================================================================
-// SYNEXAN AI UI & STREAM CONTROLLER (NO ICONS, LIVE FPS/DELAY, DUAL-SCREEN)
+// SYNEXAN AI UI & STREAM CONTROLLER (NO ICONS, SINGLE FPS BADGE, MIN STRIP WIDTH)
 // ==============================================================================
-// 1. Giữ nguyên bố cục 2 màn hình riêng biệt như ban đầu (Màn hình nạp bên trái + Màn hình dự đoán bên phải).
+// 1. Giữ nguyên bố cục 2 màn hình riêng biệt (Màn hình nạp bên trái + Màn hình dự đoán bên phải).
 // 2. Loại bỏ 100% các icon/emoji trên toàn bộ giao diện Gradio.
-// 3. Bổ sung thông số FPS & Delay (Độ trễ ms) thời gian thực trên tiêu đề và góc màn hình dự đoán.
+// 3. Hiển thị duy nhất 1 badge FPS & Delay trên tiêu đề màn hình bên phải (không lặp chữ FPS, không lặp 2 badge).
+// 4. Đưa mặc định thanh trượt "Bề rộng cột mốc" về mức nhỏ nhất (min = 4).
+// 5. Đảm bảo chữ tiêu đề .header-box luôn có màu trắng sáng (#ffffff) nổi bật trên nền xanh đậm.
 
 (function () {
   'use strict';
 
-  console.log('[Synexan UI Controller] Khởi động bộ điều khiển giao diện 2 màn hình & FPS/Delay HUD...');
+  console.log('[Synexan UI Controller v4] Khởi động giao diện chuẩn (1 FPS Badge, Min Strip Width = 4, White Header)...');
 
   let globalLatestFps = 0;
   let globalLatestLatency = 71;
   let frameTimestamps = [];
   let lastFrameSrcByCanvas = {};
   let lastIdleResetTimer = null;
+
+  // ----------------------------------------------------------------------------
+  // 0. CSS TIÊM TRỰC TIẾP: SỬA MÀU CHỮ TIÊU ĐỀ TRẮNG SÁNG & CHỐNG LẶP BADGE
+  // ----------------------------------------------------------------------------
+  function injectCustomStyles() {
+    if (document.getElementById('synexan-v4-custom-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'synexan-v4-custom-styles';
+    style.textContent = `
+      /* Đảm bảo tiêu đề chính và mô tả trong .header-box luôn trắng sáng trên nền xanh đậm */
+      .header-box,
+      .header-box h1,
+      .header-box p,
+      .header-box b,
+      .header-box strong,
+      .header-box span,
+      .prose .header-box h1,
+      .prose .header-box p,
+      .prose .header-box b,
+      .prose .header-box strong {
+        color: #ffffff !important;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.28) !important;
+      }
+      /* Ẩn hoàn toàn mọi badge phụ trên góc canvas để không bao giờ bị nhân đôi FPS */
+      .synexan-hud-perf-badge {
+        display: none !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
 
   // ----------------------------------------------------------------------------
   // 1. LOẠI BỎ SẠCH 100% ICON / EMOJI TRÊN MỌI PHẦN TỬ GRADIO
@@ -25,6 +57,7 @@
     const selectors = 'h1, h2, h3, h4, h5, h6, button, span, label, p, b, strong, td, th, .tab-nav button, .prose *, [role="tab"]';
     const elements = document.querySelectorAll(selectors);
     elements.forEach((el) => {
+      if (el.classList && el.classList.contains('synexan-header-perf-badge')) return;
       if (el.childNodes && el.childNodes.length > 0) {
         el.childNodes.forEach((node) => {
           if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
@@ -40,7 +73,7 @@
   }
 
   // ----------------------------------------------------------------------------
-  // 2. CẬP NHẬT THÔNG SỐ FPS & DELAY (ĐỘ TRỄ) THỜI GIAN THỰC
+  // 2. CẬP NHẬT THÔNG SỐ FPS & DELAY (DUY NHẤT 1 BADGE, KHÔNG LẶP CHỮ FPS)
   // ----------------------------------------------------------------------------
   function recordNewFrameAndComputeFps() {
     const now = performance.now();
@@ -60,15 +93,14 @@
   }
 
   function getPerfText() {
-    const fpsDisplay = globalLatestFps > 0 ? `${globalLatestFps} FPS` : `0 FPS (Standby)`;
-    return `FPS: ${fpsDisplay} | Delay: ${globalLatestLatency}ms`;
+    return `FPS: ${globalLatestFps} | Delay: ${globalLatestLatency}ms`;
   }
 
   function updateAllPerfBadges() {
     const text = getPerfText();
     const isStreaming = globalLatestFps > 0;
 
-    const badges = document.querySelectorAll('.synexan-header-perf-badge, .synexan-hud-perf-badge');
+    const badges = document.querySelectorAll('.synexan-header-perf-badge');
     badges.forEach((b) => {
       b.textContent = text;
       b.style.color = isStreaming ? '#34d399' : '#38bdf8';
@@ -77,12 +109,24 @@
   }
 
   function attachHeaderPerfBadges() {
-    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, .prose h4');
+    // Xóa mọi badge HUD cũ nếu còn sót lại
+    document.querySelectorAll('.synexan-hud-perf-badge').forEach((el) => el.remove());
+
+    const headings = document.querySelectorAll('.prose h4, h4');
     headings.forEach((el) => {
-      const text = el.textContent || '';
+      // Lấy nội dung văn bản gốc (không tính nội dung của badge bên trong)
+      let baseText = '';
+      el.childNodes.forEach((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          baseText += node.nodeValue || '';
+        } else if (node.nodeType === Node.ELEMENT_NODE && !node.classList.contains('synexan-header-perf-badge')) {
+          baseText += node.textContent || '';
+        }
+      });
+
       if (
-        text.includes('Màn Hình Video') ||
-        text.includes('Màn Hình Giám Sát')
+        baseText.includes('Màn Hình Video') ||
+        baseText.includes('Màn Hình Giám Sát')
       ) {
         el.style.display = 'flex';
         el.style.justifyContent = 'space-between';
@@ -91,7 +135,14 @@
         el.style.flexWrap = 'wrap';
         el.style.gap = '8px';
 
-        if (!el.querySelector('.synexan-header-perf-badge')) {
+        const existingBadges = el.querySelectorAll('.synexan-header-perf-badge');
+        if (existingBadges.length > 1) {
+          for (let i = 1; i < existingBadges.length; i++) {
+            existingBadges[i].remove();
+          }
+        }
+
+        if (existingBadges.length === 0) {
           const badge = document.createElement('span');
           badge.className = 'synexan-header-perf-badge';
           badge.style.cssText = `
@@ -127,7 +178,48 @@
   });
 
   // ----------------------------------------------------------------------------
-  // 3. THEO DÕI MÀN HÌNH DỰ ĐOÁN BÊN PHẢI ĐỂ ĐO FPS & HIỂN THỊ HUD
+  // 3. ĐƯA MẶC ĐỊNH THANH TRƯỢT "BỀ RỘNG CỘT MỐC" VỀ MỨC NHỎ NHẤT (MIN = 4)
+  // ----------------------------------------------------------------------------
+  function enforceMinStripWidthOnLoad() {
+    const labels = document.querySelectorAll('label, span[data-testid="block-info"]');
+    labels.forEach((lbl) => {
+      const txt = (lbl.textContent || '').trim();
+      if (txt.includes('Bề rộng cột mốc')) {
+        const container = lbl.closest('.block, .form, div');
+        if (!container || container.__synexanMinStripApplied) return;
+
+        const rangeInput = container.querySelector('input[type="range"]');
+        const numInput = container.querySelector('input[type="number"]');
+        if (rangeInput) {
+          const minVal = rangeInput.min || '4';
+          container.__synexanMinStripApplied = true;
+          if (String(rangeInput.value) === '20') {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+            if (nativeSetter) {
+              nativeSetter.call(rangeInput, minVal);
+            } else {
+              rangeInput.value = minVal;
+            }
+            rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+            rangeInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          if (numInput && String(numInput.value) === '20') {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+            if (nativeSetter) {
+              nativeSetter.call(numInput, minVal);
+            } else {
+              numInput.value = minVal;
+            }
+            numInput.dispatchEvent(new Event('input', { bubbles: true }));
+            numInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+    });
+  }
+
+  // ----------------------------------------------------------------------------
+  // 4. THEO DÕI MÀN HÌNH DỰ ĐOÁN BÊN PHẢI ĐỂ ĐO FPS THỰC TẾ
   // ----------------------------------------------------------------------------
   const CANVAS_IDS = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
 
@@ -141,41 +233,9 @@
     return '';
   }
 
-  function ensureCanvasHudBadge(canvasElem) {
-    if (!canvasElem) return;
-    if (getComputedStyle(canvasElem).position === 'static') {
-      canvasElem.style.position = 'relative';
-    }
-    if (!canvasElem.querySelector('.synexan-hud-perf-badge')) {
-      const hudBadge = document.createElement('div');
-      hudBadge.className = 'synexan-hud-perf-badge';
-      hudBadge.style.cssText = `
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: rgba(15, 23, 42, 0.88);
-        color: #38bdf8;
-        border: 1px solid rgba(56, 189, 248, 0.4);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 4px 10px;
-        border-radius: 6px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-        z-index: 25;
-        pointer-events: none;
-        letter-spacing: 0.3px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      `;
-      hudBadge.textContent = getPerfText();
-      canvasElem.appendChild(hudBadge);
-    }
-  }
-
   function checkCanvasFrameUpdate(canvasId) {
     const canvasElem = document.getElementById(canvasId);
     if (!canvasElem) return;
-
-    ensureCanvasHudBadge(canvasElem);
 
     const outputSrc = getCanvasImageSrc(canvasElem);
     if (outputSrc && lastFrameSrcByCanvas[canvasId] !== outputSrc) {
@@ -206,8 +266,10 @@
   }
 
   function masterTick() {
+    injectCustomStyles();
     sanitizeAllGradioEmojis();
     attachHeaderPerfBadges();
+    enforceMinStripWidthOnLoad();
     attachCanvasObservers();
   }
 

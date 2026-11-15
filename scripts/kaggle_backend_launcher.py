@@ -67,7 +67,7 @@ def push_backend_url_to_vercel(public_url, verbose=True):
 
     success_any = False
     for endpoint in TARGET_WEBHOOKS:
-        payload = json.dumps({"url": public_url, "version": "v3_dual_screen"}).encode("utf-8")
+        payload = json.dumps({"url": public_url, "version": "v4_clean_hud"}).encode("utf-8")
         for attempt in range(1, 4):
             try:
                 req = urllib.request.Request(

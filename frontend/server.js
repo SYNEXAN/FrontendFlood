@@ -264,16 +264,16 @@ app.post('/api/backend-url', async (req, res) => {
 
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
 
-        // Nếu đang có phiên v3_dual_screen hoạt động, từ chối mọi heartbeat từ phiên cũ
-        if (activeBackendVersion === 'v3_dual_screen' && version !== 'v3_dual_screen' && currentUrl) {
+        // Nếu đang có phiên v4_clean_hud hoạt động, từ chối mọi heartbeat từ phiên cũ
+        if (activeBackendVersion === 'v4_clean_hud' && version !== 'v4_clean_hud' && currentUrl) {
             return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
         }
 
-        // Nếu phiên mới là v3_dual_screen còn phiên cũ chưa phải v3_dual_screen -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV3 = (version === 'v3_dual_screen' && activeBackendVersion !== 'v3_dual_screen');
+        // Nếu phiên mới là v4_clean_hud còn phiên cũ chưa phải v4_clean_hud -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV4 = (version === 'v4_clean_hud' && activeBackendVersion !== 'v4_clean_hud');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV3 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        if (!isUpgradeToV4 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -281,8 +281,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        if (version === 'v3_dual_screen') {
-            activeBackendVersion = 'v3_dual_screen';
+        if (version === 'v4_clean_hud') {
+            activeBackendVersion = 'v4_clean_hud';
         }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({

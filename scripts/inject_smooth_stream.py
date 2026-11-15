@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Synexan AI Smooth Stream & Single-Screen Injector
-Injects the client-side UI & Single-Screen script into ALL Gradio HTML templates
-(including both frontend/index.html and frontend/share.html used on Kaggle/Colab).
+Synexan AI Smooth Stream & UI Controller Injector (v4_clean_hud)
+Injects the client-side UI script into ALL Gradio HTML templates
+(including both frontend/index.html and frontend/share.html used on Kaggle/Colab),
+and hooks Gradio Slider/State defaults so "Bề rộng cột mốc" starts at minimum (4px).
 Ensures 100% zero changes to the backend/ folder.
 """
 import os
@@ -10,7 +11,40 @@ import sys
 import re
 
 
+def install_gradio_runtime_hooks():
+    """Hook gr.Slider and gr.State in-memory so 'Bề rộng cột mốc' defaults to minimum (4px)."""
+    try:
+        import gradio as gr
+        if not getattr(gr.Slider, "_synexan_hooked", False):
+            orig_slider_init = gr.Slider.__init__
+
+            def hooked_slider_init(self, *args, **kwargs):
+                lbl = str(kwargs.get("label", "") or "")
+                if "Bề rộng cột mốc" in lbl:
+                    min_val = kwargs.get("minimum", 4)
+                    kwargs["value"] = min_val
+                return orig_slider_init(self, *args, **kwargs)
+
+            gr.Slider.__init__ = hooked_slider_init
+            gr.Slider._synexan_hooked = True
+
+        if not getattr(gr.State, "_synexan_hooked", False):
+            orig_state_init = gr.State.__init__
+
+            def hooked_state_init(self, value=None, *args, **kwargs):
+                if isinstance(value, dict) and "strip_width" in value:
+                    value = dict(value)
+                    value["strip_width"] = 4
+                return orig_state_init(self, value=value, *args, **kwargs)
+
+            gr.State.__init__ = hooked_state_init
+            gr.State._synexan_hooked = True
+    except Exception as e:
+        print(f"⚠️ [Runtime Hook] {e}")
+
+
 def inject_patch():
+    install_gradio_runtime_hooks()
     try:
         import gradio
         gradio_dir = os.path.dirname(gradio.__file__)
@@ -55,7 +89,7 @@ def inject_patch():
                     except Exception as inner_e:
                         print(f"⚠️ [Injector] Không thể vá {tpath}: {inner_e}")
 
-        print(f"🎉 [Injector] Đã tích hợp thành công Single-Screen & FPS/Delay Controller vào {len(patched_files)} Gradio templates: {patched_files}")
+        print(f"🎉 [Injector] Đã tích hợp thành công UI Controller v4 vào {len(patched_files)} Gradio templates: {patched_files}")
         return len(patched_files) > 0
     except Exception as e:
         print(f"❌ [Injector] Lỗi tích hợp: {e}")
@@ -103,7 +137,7 @@ def start_legacy_fork_keepalive():
         "    if url:\n"
         "        for ep in webhooks:\n"
         "            try:\n"
-        "                req = urllib.request.Request(ep, data=json.dumps({'url': url}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+        "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v4_clean_hud'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
         "                urllib.request.urlopen(req, timeout=8)\n"
         "            except Exception: pass\n"
     )
