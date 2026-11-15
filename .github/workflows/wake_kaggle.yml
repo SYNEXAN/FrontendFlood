@@ -25,11 +25,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install Kaggle CLI & Testing Tools
         run: |
-          pip install --upgrade kaggle gradio_client opencv-python-headless numpy
+          pip install --upgrade "kaggle>=2.0.0" kagglesdk gradio_client opencv-python-headless numpy
 
       - name: Smart Low-Quota Rotation & Wake GPU
         env:

@@ -361,7 +361,15 @@ def cleanup_stale_kernels(username, current_slug=None, force_kill_running=False)
 
                     if force_kill_running or FORCE_PUSH:
                         print(f"   🗑️ Đang xóa phiên synexan cũ để giải phóng slot GPU: {kernel_ref}")
-                        subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=12)
+                        res_del = subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=15)
+                        if res_del.returncode != 0:
+                            try:
+                                from kaggle.api.kaggle_api_extended import KaggleApi
+                                api_del = KaggleApi()
+                                api_del.authenticate()
+                                api_del.kernels_delete(kernel_ref, no_confirm=True)
+                            except Exception as de:
+                                print(f"      ⚠️ Lỗi xóa {kernel_ref}: {de}")
                         deleted_count += 1
                         time.sleep(2.5)
                         continue
