@@ -161,10 +161,10 @@ def ensure_cloudflared_binary():
 
 
 def install_compatibility_shims():
-    """Cài đặt bộ vá HfFolder cho Gradio 4.44.0 và bộ đệm Smooth Stream."""
+    """Cài đặt bộ vá HfFolder cho Gradio 4.44.0 và bộ đệm Smooth Stream vào tất cả templates (index.html + share.html)."""
     try:
         shim_code = (
-            "import huggingface_hub, sys\n"
+            "import huggingface_hub, sys, os\n"
             "if not hasattr(huggingface_hub, 'HfFolder'):\n"
             "    class HfFolder:\n"
             "        @staticmethod\n"
@@ -177,6 +177,12 @@ def install_compatibility_shims():
             "        def delete_token(): pass\n"
             "    huggingface_hub.HfFolder = HfFolder\n"
             "    sys.modules['huggingface_hub.HfFolder'] = HfFolder\n"
+            "try:\n"
+            "    sys.path.insert(0, '/kaggle/working/FrontendFlood/scripts')\n"
+            "    import inject_smooth_stream\n"
+            "    inject_smooth_stream.inject_patch()\n"
+            "except Exception:\n"
+            "    pass\n"
         )
         with open(os.path.join(WORKING_CWD, "sitecustomize.py"), "w", encoding="utf-8") as f:
             f.write(shim_code)
@@ -336,6 +342,12 @@ def main():
     restart_count = 0
 
     while True:
+        try:
+            subprocess.run(["git", "-C", "/kaggle/working/FrontendFlood", "pull", "-q"], check=False, timeout=15)
+            install_compatibility_shims()
+        except Exception:
+            pass
+
         with open("/tmp/app.log", "w", buffering=1, encoding="utf-8") as app_log:
             env = os.environ.copy()
             env["IDLE_TIMEOUT_SECONDS"] = "43200"

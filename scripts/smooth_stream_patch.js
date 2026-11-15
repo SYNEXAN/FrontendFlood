@@ -1,65 +1,92 @@
 // ==============================================================================
-// SYNEXAN ULTRA-SMOOTH JITTER BUFFER VIDEO RENDERER (GPU ACCELERATED CANVAS)
+// SYNEXAN AI UI & STREAM CONTROLLER (NO ICONS, LIVE FPS/DELAY, SINGLE-SCREEN)
 // ==============================================================================
-// Tối ưu hóa hiển thị luồng video AI trên Gradio bằng HTML5 Canvas và Hardware GPU.
-// Tự động nhúng badge hiển thị FPS & Độ trễ vào ngay thanh tiêu đề "Màn Hình Video",
-// loại bỏ hoàn toàn các icon/emoji để giao diện đạt chuẩn chuyên nghiệp và thanh lịch.
+// 1. Loại bỏ 100% các icon/emoji trên toàn bộ giao diện Gradio.
+// 2. Bổ sung thông số FPS & Delay (Độ trễ ms) thời gian thực trên tiêu đề và HUD.
+// 3. Gộp khung kết quả AI và khung đẩy dữ liệu vào thành 1 màn hình duy nhất cho
+//    cả "Ảnh" và "Video" (ghi đè trực tiếp kết quả AI lên khung), giữ nguyên "Camera".
 
-(function() {
+(function () {
   'use strict';
 
-  console.log('🚀 [Synexan Smooth Stream] Khởi động Bộ đệm Jitter Buffer...');
+  console.log('[Synexan UI Controller] Khởi động bộ điều khiển giao diện Single-Screen & FPS/Delay HUD...');
 
   let globalLatestFps = 0;
   let globalLatestLatency = 71;
+  let frameTimestamps = [];
+  let lastFrameSrcByCanvas = {};
+  let lastIdleResetTimer = null;
 
-  function updateHeaderBadges(fpsVal, latencyMs) {
-    if (typeof latencyMs === 'number' && latencyMs > 0) globalLatestLatency = latencyMs;
-    if (typeof fpsVal === 'number') globalLatestFps = fpsVal;
-
-    const text = globalLatestFps > 0 
-      ? `${globalLatestFps} FPS | Độ trễ: ${globalLatestLatency}ms`
-      : `Standby | Độ trễ: ${globalLatestLatency}ms`;
-
-    const badges = document.querySelectorAll('.synexan-header-perf-badge');
-    badges.forEach((b) => {
-      b.textContent = text;
-      b.style.color = globalLatestFps >= 25 ? '#34d399' : (globalLatestFps > 0 ? '#38bdf8' : '#94a3b8');
-      b.style.borderColor = globalLatestFps > 0 ? 'rgba(56, 189, 248, 0.4)' : 'rgba(148, 163, 184, 0.3)';
-    });
-  }
+  // ----------------------------------------------------------------------------
+  // 1. LOẠI BỎ SẠCH 100% ICON / EMOJI TRÊN MỌI PHẦN TỬ GRADIO
+  // ----------------------------------------------------------------------------
+  const EMOJI_REGEX = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{FE0F}\u{200D}🌊⚡🚗📁🖼️🚀⏹⚙️🗑🎯🚦📋📍💡📏🔄✅❌⚠️🛑🎉⏳🔎📌]/gu;
 
   function sanitizeAllGradioEmojis() {
-    // Loại bỏ sạch 100% tất cả emoji trên mọi thẻ tiêu đề, nút bấm, tab và nhãn
-    const emojiRegex = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}🌊⚡📁🖼️🚀⏹️⚙️🗑️🎯🚦📋📍💡]/gu;
-    const targets = document.querySelectorAll('h1, h2, h3, h4, h5, h6, button, span, label, p, .tab-nav button, .prose *');
-    targets.forEach((el) => {
+    const selectors = 'h1, h2, h3, h4, h5, h6, button, span, label, p, b, strong, td, th, .tab-nav button, .prose *, [role="tab"]';
+    const elements = document.querySelectorAll(selectors);
+    elements.forEach((el) => {
       if (el.childNodes && el.childNodes.length > 0) {
         el.childNodes.forEach((node) => {
-          if (node.nodeType === Node.TEXT_NODE && node.nodeValue && emojiRegex.test(node.nodeValue)) {
-            node.nodeValue = node.nodeValue.replace(emojiRegex, '').trimStart();
+          if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+            EMOJI_REGEX.lastIndex = 0;
+            if (EMOJI_REGEX.test(node.nodeValue)) {
+              EMOJI_REGEX.lastIndex = 0;
+              node.nodeValue = node.nodeValue.replace(EMOJI_REGEX, '').replace(/^\s+/, '');
+            }
           }
         });
       }
     });
   }
 
-  // Quét định kỳ mỗi 500ms để đảm bảo mọi component động của Gradio đều sạch bóng icon/emoji
-  setInterval(sanitizeAllGradioEmojis, 500);
-  window.addEventListener('DOMContentLoaded', sanitizeAllGradioEmojis);
+  // ----------------------------------------------------------------------------
+  // 2. CẬP NHẬT THÔNG SỐ FPS & DELAY (ĐỘ TRỄ) THỜI GIAN THỰC
+  // ----------------------------------------------------------------------------
+  function recordNewFrameAndComputeFps() {
+    const now = performance.now();
+    frameTimestamps.push(now);
+    // Chỉ giữ các frame trong vòng 1000ms gần nhất
+    while (frameTimestamps.length > 0 && now - frameTimestamps[0] > 1000) {
+      frameTimestamps.shift();
+    }
+    globalLatestFps = Math.min(60, Math.max(1, frameTimestamps.length));
+    updateAllPerfBadges();
+
+    clearTimeout(lastIdleResetTimer);
+    lastIdleResetTimer = setTimeout(() => {
+      globalLatestFps = 0;
+      frameTimestamps = [];
+      updateAllPerfBadges();
+    }, 2200);
+  }
+
+  function getPerfText() {
+    const fpsDisplay = globalLatestFps > 0 ? `${globalLatestFps} FPS` : `0 FPS (Standby)`;
+    return `FPS: ${fpsDisplay} | Delay: ${globalLatestLatency}ms`;
+  }
+
+  function updateAllPerfBadges() {
+    const text = getPerfText();
+    const isStreaming = globalLatestFps > 0;
+
+    const badges = document.querySelectorAll('.synexan-header-perf-badge, .synexan-hud-perf-badge');
+    badges.forEach((b) => {
+      b.textContent = text;
+      b.style.color = isStreaming ? '#34d399' : '#38bdf8';
+      b.style.borderColor = isStreaming ? 'rgba(52, 211, 153, 0.45)' : 'rgba(56, 189, 248, 0.35)';
+    });
+  }
 
   function attachHeaderPerfBadges() {
-    // Quét tìm các phần tử tiêu đề chứa "Màn Hình Video" hoặc "Màn Hình Giám Sát"
-    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, .prose h4, .prose *');
+    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, .prose h4');
     headings.forEach((el) => {
       const text = el.textContent || '';
-      if (text.includes('Màn Hình Video') || text.includes('Màn Hình Giám Sát')) {
-        // 1. Loại bỏ các emoji/icons (như 🖼️, ⚡) trong tiêu đề để giao diện sạch sẽ
-        if (el.innerHTML.includes('🖼️') || el.innerHTML.includes('⚡')) {
-          el.innerHTML = el.innerHTML.replace(/[🖼️⚡]\s*/g, '');
-        }
-
-        // 2. Chuyển tiêu đề thành flexbox để badge dạt sang góc phải ngay ngắn
+      if (
+        text.includes('Nguồn Đầu Vào') ||
+        text.includes('Màn Hình Video') ||
+        text.includes('Màn Hình Giám Sát')
+      ) {
         el.style.display = 'flex';
         el.style.justifyContent = 'space-between';
         el.style.alignItems = 'center';
@@ -67,396 +94,324 @@
         el.style.flexWrap = 'wrap';
         el.style.gap = '8px';
 
-        // 3. Nếu chưa gắn badge, tạo mới và gắn vào góc phải
         if (!el.querySelector('.synexan-header-perf-badge')) {
           const badge = document.createElement('span');
           badge.className = 'synexan-header-perf-badge';
           badge.style.cssText = `
             font-size: 12px;
-            font-weight: 600;
-            color: #94a3b8;
-            background: rgba(15, 23, 42, 0.75);
-            border: 1px solid rgba(148, 163, 184, 0.3);
+            font-weight: 700;
+            color: #38bdf8;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.35);
             border-radius: 6px;
-            padding: 3px 10px;
+            padding: 4px 12px;
             letter-spacing: 0.3px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             user-select: none;
             white-space: nowrap;
           `;
-          const initText = globalLatestFps > 0 
-            ? `${globalLatestFps} FPS | Độ trễ: ${globalLatestLatency}ms`
-            : `Standby | Độ trễ: ${globalLatestLatency}ms`;
-          badge.textContent = initText;
+          badge.textContent = getPerfText();
           el.appendChild(badge);
         }
       }
     });
   }
 
-  // Quét định kỳ mỗi 800ms để gắn badge khi người dùng chuyển qua lại các Tab
-  setInterval(attachHeaderPerfBadges, 800);
-  window.addEventListener('DOMContentLoaded', attachHeaderPerfBadges);
-
-  // Lắng nghe cập nhật ping khứ hồi từ Parent Window
+  // Lắng nghe cập nhật Ping / Delay từ trang mẹ Vercel
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'PING_UPDATE') {
       const pingVal = event.data.latencyMs;
       if (typeof pingVal === 'number' && pingVal > 0) {
-        updateHeaderBadges(globalLatestFps, pingVal);
+        globalLatestLatency = pingVal;
+        updateAllPerfBadges();
       }
     }
   });
 
-  class SynexanJitterBuffer {
-    constructor(targetFps = 30, targetBuffer = 5) {
-      this.targetFps = targetFps;
-      this.frameIntervalMs = 1000 / targetFps; // ~33.3ms
-      this.targetBuffer = targetBuffer;
-      this.queue = [];
-      this.isPlaying = false;
-      this.lastRenderTime = 0;
-      this.fpsCounter = 0;
-      this.fpsTimer = performance.now();
-      this.currentFps = 0;
-      this.canvas = null;
-      this.ctx = null;
-      this.activeImgElem = null;
-      this.lastReceivedSrc = null;
-      this.idleTimeout = null;
+  // ----------------------------------------------------------------------------
+  // 3. GỘP KHUNG HIỂN THỊ CHO CẢ "ẢNH" VÀ "VIDEO" (GIỮ NGUYÊN "CAMERA")
+  // ----------------------------------------------------------------------------
+  const TAB_CONFIGS = [
+    {
+      canvasId: 'tab5_calib_canvas',
+      imageTabId: 'input_image',
+      videoTabId: 'input_video',
+      cameraTabId: 'input_camera'
+    },
+    {
+      canvasId: 'traffic_canvas',
+      imageTabId: 'traffic_input_image',
+      videoTabId: 'traffic_input_video',
+      cameraTabId: 'traffic_input_camera'
+    },
+    {
+      canvasId: 'fusion_canvas',
+      imageTabId: 'fusion_input_image',
+      videoTabId: 'fusion_input_video',
+      cameraTabId: 'fusion_input_camera'
+    }
+  ];
+
+  function findRightColumn(canvasElem) {
+    if (!canvasElem) return null;
+    let col = canvasElem.closest('.column, .gr-column');
+    if (col) return col;
+    let p = canvasElem.parentElement;
+    while (p && p !== document.body) {
+      if (p.textContent && (p.textContent.includes('2. Màn Hình') || p.textContent.includes('Khung hình video'))) {
+        return p;
+      }
+      p = p.parentElement;
+    }
+    return null;
+  }
+
+  function findLeftColumn(rightCol) {
+    if (!rightCol || !rightCol.parentElement) return null;
+    const row = rightCol.parentElement;
+    for (let i = 0; i < row.children.length; i++) {
+      const child = row.children[i];
+      if (child !== rightCol) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  function getActiveSubMode(leftCol, cfg) {
+    // Kiểm tra theo nút tab đang được chọn (Ảnh / Video / Camera)
+    if (leftCol) {
+      const selectedBtns = leftCol.querySelectorAll('button.selected, button[aria-selected="true"]');
+      for (const btn of selectedBtns) {
+        const t = (btn.textContent || '').trim().toLowerCase();
+        if (t.includes('camera')) return 'camera';
+        if (t.includes('video')) return 'video';
+        if (t.includes('ảnh') || t.includes('anh')) return 'image';
+      }
+    }
+    // Fallback kiểm tra phần tử DOM đang hiển thị
+    const camEl = document.getElementById(cfg.cameraTabId);
+    if (camEl && camEl.offsetParent !== null && getComputedStyle(camEl).display !== 'none') {
+      return 'camera';
+    }
+    const imgEl = document.getElementById(cfg.imageTabId);
+    if (imgEl && imgEl.offsetParent !== null && getComputedStyle(imgEl).display !== 'none') {
+      return 'image';
+    }
+    return 'video';
+  }
+
+  function getCanvasImageSrc(canvasElem) {
+    if (!canvasElem) return '';
+    const img = canvasElem.querySelector('img');
+    if (img) {
+      const s = img.currentSrc || img.src || img.getAttribute('src') || '';
+      if (s && s.length > 20) return s;
+    }
+    const c = canvasElem.querySelector('canvas');
+    if (c) {
+      try {
+        return c.toDataURL('image/jpeg', 0.92);
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function ensureOverlayOnContainer(mediaContainer, outputSrc) {
+    if (!mediaContainer || !outputSrc) return;
+
+    if (getComputedStyle(mediaContainer).position === 'static') {
+      mediaContainer.style.position = 'relative';
     }
 
-    attachToElement(imgElem) {
-      if (!imgElem || imgElem.__synexanAttached) return;
-      imgElem.__synexanAttached = true;
-      this.activeImgElem = imgElem;
+    // Đảm bảo các nút Xóa (Clear / Modify) của Gradio luôn nằm trên lớp phủ để người dùng đổi file dễ dàng
+    const actionButtons = mediaContainer.querySelectorAll('button, .modify-upload, [aria-label="Clear"], [aria-label="Remove"]');
+    actionButtons.forEach((btn) => {
+      if (btn.parentElement && btn.parentElement !== mediaContainer) {
+        btn.parentElement.style.zIndex = '40';
+      }
+      btn.style.zIndex = '40';
+    });
 
-      // 1. Tạo Canvas thay thế
-      this.canvas = document.createElement('canvas');
-      this.canvas.className = 'synexan-smooth-canvas';
-      this.canvas.style.cssText = `
+    let overlayWrap = mediaContainer.querySelector('.synexan-single-screen-overlay-wrap');
+    if (!overlayWrap) {
+      overlayWrap = document.createElement('div');
+      overlayWrap.className = 'synexan-single-screen-overlay-wrap';
+      overlayWrap.style.cssText = `
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b0f19;
+        border-radius: 8px;
+        z-index: 15;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      `;
+
+      const overlayImg = document.createElement('img');
+      overlayImg.className = 'synexan-single-screen-overlay-img';
+      overlayImg.style.cssText = `
         width: 100%;
         height: 100%;
         max-height: 100%;
         object-fit: contain;
         display: block;
         border-radius: 8px;
-        background: #0b0f19;
       `;
-      this.ctx = this.canvas.getContext('2d', { alpha: false, desynchronized: true });
+      overlayWrap.appendChild(overlayImg);
 
-      // 2. Chèn canvas vào cùng container
-      const parent = imgElem.parentNode;
-      if (parent) {
-        parent.style.position = 'relative';
-        parent.insertBefore(this.canvas, imgElem);
-        imgElem.style.display = 'none';
-      }
+      // Gắn HUD FPS & Delay trực tiếp ở góc trái trên của khung hiển thị
+      const hudBadge = document.createElement('div');
+      hudBadge.className = 'synexan-hud-perf-badge';
+      hudBadge.style.cssText = `
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(15, 23, 42, 0.88);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.4);
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+        z-index: 20;
+        pointer-events: none;
+        letter-spacing: 0.3px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      `;
+      hudBadge.textContent = getPerfText();
+      overlayWrap.appendChild(hudBadge);
 
-      // 3. Lắng nghe thay đổi của thuộc tính src (Producer)
-      const handleNewSrc = (src) => {
-        if (!src || src === this.lastReceivedSrc) return;
-        if (src.startsWith('data:image/') || src.startsWith('blob:') || src.startsWith('http')) {
-          this.lastReceivedSrc = src;
-          this.pushFrame(src);
-        }
-      };
-
-      // Bắt giá trị src hiện tại nếu có
-      if (imgElem.src) {
-        handleNewSrc(imgElem.src);
-      }
-
-      const observer = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-          if (m.type === 'attributes' && m.attributeName === 'src') {
-            const newSrc = imgElem.getAttribute('src') || imgElem.src;
-            handleNewSrc(newSrc);
-          }
-        }
-      });
-      observer.observe(imgElem, { attributes: true, attributeFilter: ['src'] });
-
-      console.log('✅ [Synexan Smooth Stream] Đã gắn GPU Canvas Jitter Buffer vào phần tử ảnh!');
+      mediaContainer.appendChild(overlayWrap);
     }
 
-    pushFrame(src) {
-      const img = new Image();
-      img.src = src;
-      this.queue.push(img);
-
-      // Reset timer chờ nhàn rỗi (idle reset sau 2.5s không có frame mới)
-      clearTimeout(this.idleTimeout);
-      this.idleTimeout = setTimeout(() => {
-        if (this.queue.length === 0) {
-          this.isPlaying = false;
-          this.emitTelemetry('idle');
-          updateHeaderBadges(0, globalLatestLatency);
-        }
-      }, 2500);
-
-      // Kích hoạt phát khi gom đủ số frame pre-roll (lót đường 4-5 frames)
-      if (!this.isPlaying && this.queue.length >= Math.min(3, this.targetBuffer)) {
-        this.isPlaying = true;
-        this.lastRenderTime = performance.now();
-        requestAnimationFrame(this.renderLoop.bind(this));
-      }
+    const overlayImg = overlayWrap.querySelector('.synexan-single-screen-overlay-img');
+    if (overlayImg && overlayImg.getAttribute('data-last-src') !== outputSrc) {
+      overlayImg.src = outputSrc;
+      overlayImg.setAttribute('data-last-src', outputSrc);
     }
-
-    renderLoop(now) {
-      if (!this.isPlaying) return;
-
-      const delta = now - this.lastRenderTime;
-
-      // Điều tốc thích ứng (Adaptive Pacing)
-      let dynamicInterval = this.frameIntervalMs;
-      if (this.queue.length > this.targetBuffer * 2) {
-        dynamicInterval *= 0.90; // Buffer bị dồn ứ: tăng tốc 10% để xả
-      } else if (this.queue.length <= 2) {
-        dynamicInterval *= 1.10; // Buffer cạn dần: chậm lại 10% để giữ hình liên tục
-      }
-
-      if (delta >= dynamicInterval) {
-        if (this.queue.length > 0) {
-          const frame = this.queue.shift();
-          if (frame.complete && frame.naturalWidth > 0) {
-            if (this.canvas.width !== frame.naturalWidth || this.canvas.height !== frame.naturalHeight) {
-              this.canvas.width = frame.naturalWidth;
-              this.canvas.height = frame.naturalHeight;
-            }
-            this.ctx.drawImage(frame, 0, 0);
-            this.fpsCounter++;
-
-            // Vẽ HUD Badge: FPS & Độ trễ trực tiếp trên góc trên bên phải của video (Không icon)
-            const fpsVal = this.currentFps > 0 ? this.currentFps : 30;
-            const latVal = Math.round(this.queue.length * this.frameIntervalMs + globalLatestLatency);
-            const hudText = `${fpsVal} FPS | Độ trễ: ${latVal}ms`;
-            this.ctx.save();
-            this.ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            const textWidth = this.ctx.measureText(hudText).width;
-            const boxX = this.canvas.width - textWidth - 20;
-            const boxY = 10;
-            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            if (typeof this.ctx.roundRect === 'function') {
-              this.ctx.beginPath();
-              this.ctx.roundRect(boxX, boxY, textWidth + 14, 24, 6);
-              this.ctx.fill();
-              this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
-              this.ctx.lineWidth = 1;
-              this.ctx.stroke();
-            } else {
-              this.ctx.fillRect(boxX, boxY, textWidth + 14, 24);
-            }
-            this.ctx.fillStyle = '#38bdf8';
-            this.ctx.fillText(hudText, boxX + 7, boxY + 16);
-            this.ctx.restore();
-          }
-        }
-        this.lastRenderTime = now;
-      }
-
-      // Đo FPS thực tế mỗi giây và gửi báo cáo về trang mẹ
-      if (now - this.fpsTimer >= 1000) {
-        this.currentFps = this.fpsCounter;
-        this.fpsCounter = 0;
-        this.fpsTimer = now;
-        this.emitTelemetry('active');
-        updateHeaderBadges(this.currentFps, globalLatestLatency);
-      }
-
-      requestAnimationFrame(this.renderLoop.bind(this));
-    }
-
-    emitTelemetry(mode = 'active') {
-      try {
-        const fpsVal = (mode === 'active' && this.currentFps > 0) ? this.currentFps : 0;
-        const latVal = Math.round(this.queue.length * this.frameIntervalMs + globalLatestLatency);
-        const payload = {
-          type: 'STREAM_HEALTH',
-          fps: fpsVal,
-          bufferCount: this.queue.length,
-          targetBuffer: this.targetBuffer,
-          status: (mode === 'idle' || fpsVal === 0) ? 'idle' : (this.queue.length >= 2 ? 'healthy' : 'buffering'),
-          latencyMs: latVal
-        };
-        window.parent.postMessage(payload, '*');
-      } catch (e) {}
-    }
+    overlayWrap.style.display = 'flex';
   }
 
-  // ==============================================================================
-  // SYNEXAN SINGLE SCREEN MANAGER (CHẾ ĐỘ DỰ ĐOÁN ẢNH 1 MÀN HÌNH - GHI ĐÈ KẾT QUẢ)
-  // ==============================================================================
-  // Tự động phát hiện khi người dùng ở Tab "Ảnh":
-  // 1. Ẩn cột màn hình phụ bên phải (#tab5_calib_canvas, #traffic_canvas, #fusion_canvas).
-  // 2. Khi AI hoàn tất và sinh ảnh dự đoán, tự động cập nhật và ghi đè ảnh kết quả
-  //    trực tiếp lên màn hình tải ảnh bên trái kèm huy hiệu "Kết quả AI phân tích".
-  // 3. Tự động hiển thị lại cột video bên phải khi chuyển sang Tab "Video" hoặc "Camera".
-
-  function initSingleScreenPredictionManager() {
-    // 1. Lắng nghe sự kiện click trên các nút chuyển Tab con (Ảnh / Video / Camera)
-    const tabButtons = document.querySelectorAll('button[role="tab"], .tab-nav button');
-    let isImageTabActive = false;
-
-    tabButtons.forEach((btn) => {
-      const text = (btn.textContent || '').trim();
-      if (text === 'Ảnh' || text.includes('Ảnh')) {
-        if (btn.classList.contains('selected') || btn.getAttribute('aria-selected') === 'true') {
-          isImageTabActive = true;
-        }
-        if (!btn.__synexanListener) {
-          btn.__synexanListener = true;
-          btn.addEventListener('click', () => {
-            setTimeout(() => applySingleScreenMode(true), 150);
-          });
-        }
-      } else if (text === 'Video' || text.includes('Video') || text === 'Camera' || text.includes('Camera')) {
-        if (!btn.__synexanListener) {
-          btn.__synexanListener = true;
-          btn.addEventListener('click', () => {
-            setTimeout(() => applySingleScreenMode(false), 150);
-          });
-        }
-      }
-    });
-
-    // 2. Tìm kiếm container của các canvas kết quả (#tab5_calib_canvas, #traffic_canvas, #fusion_canvas)
-    const canvasIds = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
-    canvasIds.forEach((id) => {
-      const canvasElem = document.getElementById(id);
-      if (!canvasElem) return;
-
-      // Tìm cột cha bên phải (enclosing column)
-      let rightCol = canvasElem.closest('.column, .gr-column');
-      if (!rightCol) {
-        let p = canvasElem.parentElement;
-        while (p && p !== document.body) {
-          if (p.textContent && (p.textContent.includes('2. Màn Hình Video') || p.textContent.includes('Khung hình video'))) {
-            rightCol = p;
-            break;
-          }
-          p = p.parentElement;
-        }
-      }
-
-      // Nếu đang ở Tab Ảnh -> ẩn cột bên phải
-      if (isImageTabActive && rightCol) {
-        rightCol.style.display = 'none';
-        rightCol.__synexanHiddenByImageTab = true;
-        syncPredictionToLeftScreen(canvasElem);
-      } else if (!isImageTabActive && rightCol && rightCol.__synexanHiddenByImageTab) {
-        rightCol.style.display = '';
-        rightCol.__synexanHiddenByImageTab = false;
-      }
-
-      // Theo dõi kết quả AI phân tích xuất hiện trong canvas
-      if (!canvasElem.__synexanObserverAttached) {
-        canvasElem.__synexanObserverAttached = true;
-        const observer = new MutationObserver(() => {
-          syncPredictionToLeftScreen(canvasElem);
-        });
-        observer.observe(canvasElem, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
-      }
+  function removeOverlayFromContainer(container) {
+    if (!container) return;
+    const wraps = container.querySelectorAll('.synexan-single-screen-overlay-wrap');
+    wraps.forEach((w) => {
+      w.style.display = 'none';
     });
   }
 
-  function applySingleScreenMode(isImageMode) {
-    const canvasIds = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
-    canvasIds.forEach((id) => {
-      const canvasElem = document.getElementById(id);
-      if (!canvasElem) return;
-
-      let rightCol = canvasElem.closest('.column, .gr-column');
-      if (!rightCol) {
-        let p = canvasElem.parentElement;
-        while (p && p !== document.body) {
-          if (p.textContent && (p.textContent.includes('2. Màn Hình Video') || p.textContent.includes('Khung hình video'))) {
-            rightCol = p;
-            break;
-          }
-          p = p.parentElement;
-        }
-      }
-
-      if (rightCol) {
-        if (isImageMode) {
-          rightCol.style.display = 'none';
-          rightCol.__synexanHiddenByImageTab = true;
-          syncPredictionToLeftScreen(canvasElem);
-        } else {
-          rightCol.style.display = '';
-          rightCol.__synexanHiddenByImageTab = false;
-        }
-      }
-    });
-  }
-
-  function syncPredictionToLeftScreen(canvasElem) {
+  function syncTabSingleScreen(cfg) {
+    const canvasElem = document.getElementById(cfg.canvasId);
     if (!canvasElem) return;
-    const outputImg = canvasElem.querySelector('img[src], canvas');
-    if (!outputImg) return;
 
-    let outputSrc = '';
-    if (outputImg.tagName && outputImg.tagName.toLowerCase() === 'img') {
-      outputSrc = outputImg.src || outputImg.getAttribute('src');
-    } else if (outputImg.tagName && outputImg.tagName.toLowerCase() === 'canvas') {
-      try { outputSrc = outputImg.toDataURL(); } catch (e) {}
+    const rightCol = findRightColumn(canvasElem);
+    const leftCol = findLeftColumn(rightCol);
+    if (!rightCol || !leftCol) return;
+
+    const mode = getActiveSubMode(leftCol, cfg);
+    const outputSrc = getCanvasImageSrc(canvasElem);
+
+    // Kiểm tra xem canvas bên phải có vừa cập nhật frame mới không để tính FPS
+    if (outputSrc && lastFrameSrcByCanvas[cfg.canvasId] !== outputSrc) {
+      if (lastFrameSrcByCanvas[cfg.canvasId]) {
+        recordNewFrameAndComputeFps();
+      }
+      lastFrameSrcByCanvas[cfg.canvasId] = outputSrc;
     }
 
-    if (!outputSrc || outputSrc.length < 50) return;
+    if (mode === 'camera') {
+      // Chế độ Camera: Giữ nguyên 2 cột như hiện tại
+      if (rightCol.__synexanHidden) {
+        rightCol.style.position = '';
+        rightCol.style.left = '';
+        rightCol.style.top = '';
+        rightCol.style.width = '';
+        rightCol.style.height = '';
+        rightCol.style.opacity = '';
+        rightCol.style.pointerEvents = '';
+        rightCol.style.overflow = '';
+        rightCol.__synexanHidden = false;
+      }
+      leftCol.style.flex = '';
+      leftCol.style.maxWidth = '';
+      return;
+    }
 
-    const activeTab = document.querySelector('.tabitem:not([style*="display: none"]), div[role="tabpanel"]:not([style*="display: none"])');
-    if (!activeTab) return;
+    // Chế độ Ảnh hoặc Video: Gộp thành 1 khung hiển thị duy nhất
+    // Ẩn cột phải khỏi bố cục (nhưng vẫn giữ active trong DOM để Gradio render 30 FPS liên tục)
+    rightCol.style.position = 'fixed';
+    rightCol.style.left = '-10000px';
+    rightCol.style.top = '0';
+    rightCol.style.width = '10px';
+    rightCol.style.height = '10px';
+    rightCol.style.opacity = '0';
+    rightCol.style.pointerEvents = 'none';
+    rightCol.style.overflow = 'hidden';
+    rightCol.__synexanHidden = true;
 
-    const inputImgElem = activeTab.querySelector('div[data-testid="image"] img, .image-container img, input[type="file"] ~ img');
-    if (inputImgElem && inputImgElem.src !== outputSrc) {
-      inputImgElem.src = outputSrc;
-      inputImgElem.setAttribute('src', outputSrc);
-      console.log('✅ [Synexan Single Screen] Đã ghi đè kết quả phân tích AI lên màn hình ảnh bên trái!');
+    leftCol.style.flex = '1 1 100%';
+    leftCol.style.maxWidth = '100%';
 
-      const parentWrap = inputImgElem.parentElement;
-      if (parentWrap && !parentWrap.querySelector('.synexan-ai-badge')) {
-        parentWrap.style.position = 'relative';
-        const badge = document.createElement('span');
-        badge.className = 'synexan-ai-badge';
-        badge.textContent = 'Kết quả AI phân tích';
-        badge.style.cssText = `
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(16, 185, 129, 0.9);
-          color: #ffffff;
-          font-size: 11px;
-          font-weight: 700;
-          padding: 4px 10px;
-          border-radius: 6px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-          z-index: 100;
-          pointer-events: none;
-          letter-spacing: 0.3px;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        `;
-        parentWrap.appendChild(badge);
+    if (!outputSrc) return;
+
+    if (mode === 'image') {
+      const imgTab = document.getElementById(cfg.imageTabId);
+      if (!imgTab) return;
+      const uploadedImg = imgTab.querySelector('img');
+      if (uploadedImg && uploadedImg.parentElement) {
+        ensureOverlayOnContainer(uploadedImg.parentElement, outputSrc);
+      } else {
+        removeOverlayFromContainer(imgTab);
+      }
+    } else if (mode === 'video') {
+      const vidTab = document.getElementById(cfg.videoTabId);
+      if (!vidTab) return;
+      const uploadedVid = vidTab.querySelector('video');
+      if (uploadedVid && uploadedVid.parentElement) {
+        // Tạm dừng phát thẻ <video> gốc khi lớp kết quả AI đang hiển thị đè lên
+        if (!uploadedVid.paused) {
+          try { uploadedVid.pause(); } catch (e) {}
+        }
+        ensureOverlayOnContainer(uploadedVid.parentElement, outputSrc);
+      } else {
+        removeOverlayFromContainer(vidTab);
       }
     }
   }
 
-  setInterval(initSingleScreenPredictionManager, 1000);
-  window.addEventListener('DOMContentLoaded', initSingleScreenPredictionManager);
-
-  // Tự động tìm kiếm các phần tử hình ảnh output trong Gradio và kích hoạt Jitter Buffer
-  function autoAttachJitterBuffer() {
-    const candidateImages = document.querySelectorAll('img[data-testid="detailed-image"], .image-container img, .output-image img, div[data-testid="image"] img');
-    candidateImages.forEach((img) => {
-      if (!img.__synexanAttached) {
-        const renderer = new SynexanJitterBuffer(30, 5);
-        renderer.attachToElement(img);
+  function attachCanvasObservers() {
+    TAB_CONFIGS.forEach((cfg) => {
+      const canvasElem = document.getElementById(cfg.canvasId);
+      if (canvasElem && !canvasElem.__synexanObserved) {
+        canvasElem.__synexanObserved = true;
+        const obs = new MutationObserver(() => {
+          syncTabSingleScreen(cfg);
+        });
+        obs.observe(canvasElem, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['src']
+        });
       }
+      syncTabSingleScreen(cfg);
     });
   }
 
-  // Quét liên tục khi Gradio render các tab hoặc component động
-  setInterval(autoAttachJitterBuffer, 1000);
-  window.addEventListener('DOMContentLoaded', autoAttachJitterBuffer);
+  function masterTick() {
+    sanitizeAllGradioEmojis();
+    attachHeaderPerfBadges();
+    attachCanvasObservers();
+  }
+
+  setInterval(masterTick, 250);
+  window.addEventListener('DOMContentLoaded', masterTick);
+  window.addEventListener('load', masterTick);
 })();
