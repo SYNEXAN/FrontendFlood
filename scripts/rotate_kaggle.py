@@ -307,10 +307,9 @@ def find_active_backend(username):
                         # Kiểm tra xem phiên QUEUED này có phải zombie queue (cũ > 3 phút)
                         age = get_slug_age_seconds(kernel_ref)
                         if age is not None and age > 180:
-                            print(f"   🛑 Phiên QUEUED '{kernel_ref}' đã kẹt {int(age // 60)} phút trước (zombie queue). Đang hủy để giải phóng GPU slot...")
-                            subprocess.run([*KAGGLE_CMD, "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
-                            time.sleep(4)
+                            print(f"   🛑 Phiên QUEUED '{kernel_ref}' đã kẹt {int(age // 60)} phút trước (zombie queue). Đang xóa để giải phóng GPU slot...")
                             subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
+                            time.sleep(4)
                             continue
                         elif not first_queued and not kernel_ref.lower().endswith("synexan-flood-backend-gpu"):
                             first_queued = (kernel_ref, "QUEUED", st_out)
@@ -364,18 +363,11 @@ def cleanup_stale_kernels(username, current_slug=None):
                     age = get_slug_age_seconds(kernel_ref)
                     is_zombie_queue = ("queued" in st_out) and (age is not None and age > 180)
 
-                    # 1. Hủy bất kỳ phiên synexan cũ nào đang kẹt QUEUED > 3 phút hoặc cũ để giải phóng slot GPU
-                    if is_zombie_queue or (FORCE_PUSH and "running" in st_out):
-                        print(f"   🛑 Đang hủy phiên synexan kẹt ({'zombie queue' if is_zombie_queue else 'force push'}): {kernel_ref}")
-                        subprocess.run([*KAGGLE_CMD, "kernels", "cancel", kernel_ref], capture_output=True, text=True, timeout=10)
-                        time.sleep(6) # Đợi Kaggle giải phóng slot trong cụm máy chủ
-                        st_out = "cancel_acknowledged"
-
-                    # 2. Xóa các kernel synexan đã kết thúc/lỗi/hủy để danh sách luôn sạch
-                    if "complete" in st_out or "error" in st_out or "cancel_acknowledged" in st_out:
-                        print(f"   🗑️ Đang xóa kernel synexan đã kết thúc: {kernel_ref}")
+                    # 1. Xóa các kernel synexan cũ đã kết thúc/lỗi hoặc kẹt QUEUED > 3 phút hoặc khi FORCE_PUSH
+                    if is_zombie_queue or (FORCE_PUSH and "running" in st_out) or "complete" in st_out or "error" in st_out:
+                        print(f"   🗑️ Đang xóa kernel synexan cũ/kẹt: {kernel_ref}")
                         subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=10)
-                        time.sleep(1)
+                        time.sleep(3)
     except Exception as e:
         print(f"   [Auto-Cleanup] Lỗi quét kernel: {e}")
 
@@ -678,8 +670,8 @@ def main():
 
                     # Nếu sau 105s vẫn QUEUED:
                     if len(accounts) > 1 and idx < len(accounts):
-                        print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 105s. Hủy phiên kẹt để giải phóng slot và kiểm tra tài khoản tiếp theo...")
-                        subprocess.run([*KAGGLE_CMD, "kernels", "cancel", active_ref], capture_output=True, text=True, timeout=10)
+                        print(f"🔄 [ROTATE] Notebook '{active_ref}' vẫn đang QUEUED sau 105s. Xóa phiên kẹt để giải phóng slot và kiểm tra tài khoản tiếp theo...")
+                        subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", active_ref], capture_output=True, text=True, timeout=10)
                         time.sleep(6)
                         continue
                     else:
@@ -738,8 +730,8 @@ def main():
 
                 # Nếu sau 105s vẫn QUEUED, xoay sang tài khoản tiếp theo nếu có
                 if len(accounts) > 1 and idx < len(accounts):
-                    print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 105s. Hủy để giải phóng slot và xoay sang tài khoản tiếp theo...")
-                    subprocess.run([*KAGGLE_CMD, "kernels", "cancel", f"{username}/{new_slug}"], capture_output=True, text=True, timeout=10)
+                    print(f"🔄 [ROTATE] Notebook '{new_slug}' chưa kịp nhận GPU sau 105s. Xóa để giải phóng slot và xoay sang tài khoản tiếp theo...")
+                    subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", f"{username}/{new_slug}"], capture_output=True, text=True, timeout=10)
                     time.sleep(6)
                     continue
                 else:

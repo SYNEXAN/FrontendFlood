@@ -872,6 +872,24 @@
     // KIỂM TRA ONLINE BACKEND API MODEL (STICKY SESSION LOCK - KHÔNG ĐỔI URL KHI ĐANG SỐNG)
     // ========================================================================
     async function checkBackendOnline() {
+      // Nếu trình duyệt đang giữ phiên v1 cũ chưa có bản vá giao diện v2_patched, kiểm tra xem Server đã có v2_patched chưa (chỉ nâng cấp đúng 1 lần duy nhất)
+      if (loadedFrameUrl && window.loadedBackendVersion !== "v2_patched") {
+        try {
+          const upRes = await fetch("/api/config", { cache: "no-store" });
+          if (upRes.ok) {
+            const upCfg = await upRes.json();
+            if (upCfg && upCfg.kernelLog && upCfg.kernelLog.version === "v2_patched" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
+              window.loadedBackendVersion = "v2_patched";
+              if (!isFrameLoadedWith(upCfg.defaultBackendUrl)) {
+                DEFAULT_CONFIG.backendUrl = upCfg.defaultBackendUrl;
+                localStorage.setItem("synexan_active_backend_url", upCfg.defaultBackendUrl);
+                loadedFrameUrl = "";
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
       // 0. STICKY SESSION LOCK: Nếu giao diện đã nạp 1 URL (loadedFrameUrl), kiểm tra URL đó trước tiên!
       // Chừng nào URL đang mở vẫn còn Online, TUYỆT ĐỐI KHÔNG lấy URL khác từ /api/config và KHÔNG reload iframe!
       if (loadedFrameUrl && loadedFrameUrl.startsWith("http")) {
@@ -901,6 +919,9 @@
         const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
           const cfg = await cfgRes.json();
+          if (cfg && cfg.kernelLog && cfg.kernelLog.version === "v2_patched") {
+            window.loadedBackendVersion = "v2_patched";
+          }
           if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             serverHasUrl = true;
             if (DEFAULT_CONFIG.backendUrl !== cfg.defaultBackendUrl) {

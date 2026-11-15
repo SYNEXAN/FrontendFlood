@@ -252,8 +252,9 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot & heartbeat)
+let activeBackendVersion = "";
 app.post('/api/backend-url', async (req, res) => {
-    const { url } = req.body || {};
+    const { url, version } = req.body || {};
     if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
         const cleanUrl = url.trim().replace(/\/+$/, '');
         // Không nhận nhầm URL api.trycloudflare.com
@@ -261,9 +262,18 @@ app.post('/api/backend-url', async (req, res) => {
             return res.status(400).json({ error: 'Ignored internal api.trycloudflare.com URL' });
         }
 
-        // STICKY SESSION LOCK TRÊN SERVER: Nếu đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó, không cho phiên thứ 2 ghi đè!
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
-        if (currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+
+        // Nếu đang có phiên v2_patched hoạt động, từ chối mọi heartbeat từ phiên cũ chưa vá share.html
+        if (activeBackendVersion === 'v2_patched' && version !== 'v2_patched' && currentUrl) {
+            return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
+        }
+
+        // Nếu phiên mới là v2_patched còn phiên cũ chưa phải v2_patched -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV2 = (version === 'v2_patched' && activeBackendVersion !== 'v2_patched');
+
+        // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
+        if (!isUpgradeToV2 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -271,14 +281,18 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
+        if (version === 'v2_patched') {
+            activeBackendVersion = 'v2_patched';
+        }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
             status: 'ready',
             message: 'Backend GPU đã sẵn sàng và kết nối thành công!',
             details: cleanUrl,
+            version: version || 'v1',
             updatedAt: new Date().toISOString()
         });
-        console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${cleanUrl}`);
+        console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${cleanUrl} (${version || 'v1'})`);
         return res.json({ success: true, activeBackendUrl: cleanUrl });
     }
     res.status(400).json({ error: "Invalid URL" });
@@ -379,7 +393,9 @@ app.post('/api/wake-gpu', async (req, res) => {
             });
         }
 
-        // TUYỆT ĐỐI KHÔNG gọi /shutdown tại đây để tránh bóp chết phiên GPU mà người dùng vừa bật thủ công!
+        if (isForce) {
+            await clearStoredBackendUrl();
+        }
 
         const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {
             method: 'POST',
