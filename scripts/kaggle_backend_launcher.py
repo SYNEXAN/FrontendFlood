@@ -186,6 +186,14 @@ def install_compatibility_shims():
         )
         with open(os.path.join(WORKING_CWD, "sitecustomize.py"), "w", encoding="utf-8") as f:
             f.write(shim_code)
+        try:
+            import site
+            for sp in site.getsitepackages():
+                if os.path.isdir(sp):
+                    with open(os.path.join(sp, "sitecustomize.py"), "w", encoding="utf-8") as sf:
+                        sf.write(shim_code)
+        except Exception:
+            pass
     except Exception as e:
         print(f"⚠️ [Compatibility Shim] {e}")
 
@@ -352,6 +360,7 @@ def main():
             env = os.environ.copy()
             env["IDLE_TIMEOUT_SECONDS"] = "43200"
             env["PYTHONUNBUFFERED"] = "1"
+            env["PYTHONPATH"] = f"{WORKING_CWD}:/kaggle/working/FrontendFlood/scripts:" + env.get("PYTHONPATH", "")
             app_proc = subprocess.Popen(
                 [sys.executable, app_py_path],
                 cwd=WORKING_CWD,

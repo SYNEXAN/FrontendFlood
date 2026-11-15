@@ -180,7 +180,23 @@
   // ----------------------------------------------------------------------------
   // 3. ĐƯA MẶC ĐỊNH THANH TRƯỢT "BỀ RỘNG CỘT MỐC" VỀ MỨC NHỎ NHẤT (MIN = 4)
   // ----------------------------------------------------------------------------
+  function patchGradioConfigMinStripWidth() {
+    const cfg = window.gradio_config;
+    if (cfg && Array.isArray(cfg.components) && !cfg.__synexanPatchedStripWidth) {
+      cfg.__synexanPatchedStripWidth = true;
+      cfg.components.forEach((c) => {
+        if (c && c.props && typeof c.props.label === 'string' && c.props.label.includes('Bề rộng cột mốc')) {
+          c.props.value = c.props.minimum || 4;
+        }
+        if (c && c.type === 'state' && c.props && c.props.value && typeof c.props.value === 'object' && 'strip_width' in c.props.value) {
+          c.props.value.strip_width = 4;
+        }
+      });
+    }
+  }
+
   function enforceMinStripWidthOnLoad() {
+    patchGradioConfigMinStripWidth();
     const labels = document.querySelectorAll('label, span[data-testid="block-info"]');
     labels.forEach((lbl) => {
       const txt = (lbl.textContent || '').trim();
