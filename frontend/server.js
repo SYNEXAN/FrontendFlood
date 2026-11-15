@@ -253,6 +253,14 @@ app.post('/api/wake-gpu', async (req, res) => {
 
         if (isForce) {
             console.log('[INFO] ⚡ Force restart requested by client (breaking queue stall).');
+            const oldUrl = await getStoredBackendUrl();
+            if (oldUrl) {
+                console.log(`[CLEAN SHUTDOWN] 🛑 Tắt phiên GPU cũ tại ${oldUrl}/shutdown trước khi tạo phiên mới...`);
+                try {
+                    await fetch(`${oldUrl}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(2000) }).catch(() => {});
+                } catch (e) {}
+                await clearStoredBackendUrl();
+            }
         }
 
         const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {

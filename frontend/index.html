@@ -645,8 +645,9 @@
     // ========================================================================
     // CẤU HÌNH MẶC ĐỊNH (ZERO-LEAK BẢO MẬT 100%)
     // ========================================================================
+    const cachedBackendUrl = localStorage.getItem("synexan_active_backend_url");
     const DEFAULT_CONFIG = {
-      backendUrl: ""
+      backendUrl: (cachedBackendUrl && cachedBackendUrl.startsWith("http")) ? cachedBackendUrl : ""
     };
 
     function getConfig() {
@@ -656,13 +657,14 @@
     }
 
     // Tự động đồng bộ URL Backend mới nhất từ Server Render
-    fetch("/api/config")
+    fetch("/api/config", { cache: "no-store" })
       .then(res => res.json())
       .then(cfg => {
         if (cfg) {
           window.wakeGpuConfigured = !!cfg.wakeGpuConfigured;
-          if (cfg.defaultBackendUrl) {
+          if (cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
           }
         }
       })
@@ -787,6 +789,7 @@
           const data = await res.json();
           if (data.online) {
             updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
+            localStorage.setItem("synexan_active_backend_url", config.backendUrl);
             return true;
           }
         }
@@ -1067,18 +1070,25 @@
     // TỰ ĐỘNG ĐÁNH THỨC THEO YÊU CẦU KHI VÀO TRANG WEB (AUTO ON-DEMAND WAKEUP)
     // ========================================================================
     async function initAutoLifecycle() {
-      // 1. Đồng bộ URL Backend mới nhất từ Server Render
+      // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước (tối ưu F5 không gián đoạn)
+      const cached = localStorage.getItem("synexan_active_backend_url");
+      if (cached && cached.startsWith("http")) {
+        DEFAULT_CONFIG.backendUrl = cached;
+      }
+
+      // 2. Đồng bộ URL Backend mới nhất từ Server Render
       try {
-        const cfgRes = await fetch("/api/config");
+        const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
           const cfg = await cfgRes.json();
-          if (cfg && cfg.defaultBackendUrl) {
+          if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
           }
         }
       } catch (e) {}
 
-      // 2. Kiểm tra tính sẵn sàng thực sự của GPU Backend
+      // 3. Kiểm tra tính sẵn sàng thực sự của GPU Backend
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
@@ -1090,6 +1100,7 @@
           frame.src = currentConfig.backendUrl;
         }
         hideOverlay();
+        console.log("[LIFECYCLE] ✅ Backend GPU đang Online. Sử dụng phiên hiện tại (không ngắt, không nạp lại).");
       }
     }
     initAutoLifecycle();
