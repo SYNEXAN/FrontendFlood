@@ -869,28 +869,32 @@
     }
 
     // ========================================================================
-    // KIỂM TRA ONLINE BACKEND API MODEL
+    // KIỂM TRA ONLINE BACKEND API MODEL (LUÔN ĐỒNG BỘ TỪ UPSTASH REDIS)
     // ========================================================================
     async function checkBackendOnline() {
-      let config = getConfig();
+      let serverHasUrl = false;
 
-      // Nếu chưa có URL hoặc URL rỗng, tự động lấy URL mới nhất từ Serverless Upstash/Vercel
-      if (!config.backendUrl || config.backendUrl === "about:blank") {
-        try {
-          const cfgRes = await fetch("/api/config", { cache: "no-store" });
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+      // LUÔN hỏi /api/config trước để nhận URL mới nhất từ Upstash Redis (kể cả khi chạy Kaggle thủ công)
+      try {
+        const cfgRes = await fetch("/api/config", { cache: "no-store" });
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+            serverHasUrl = true;
+            if (DEFAULT_CONFIG.backendUrl !== cfg.defaultBackendUrl) {
               DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
-              config.backendUrl = cfg.defaultBackendUrl;
               localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
             }
           }
-        } catch (e) {}
-      }
+        }
+      } catch (e) {}
+
+      let config = getConfig();
 
       if (!config.backendUrl || config.backendUrl === "about:blank") {
-        updateStatusUI("offline", "Backend GPU: Offline");
+        if (!isExecutingKernel) {
+          updateStatusUI("offline", "Backend GPU: Offline");
+        }
         return false;
       }
 
@@ -926,6 +930,7 @@
         const elapsed = Math.round(performance.now() - t0);
         if (res.ok) {
           updateStatusUI("online", `Backend GPU: Online (${elapsed}ms)`);
+          localStorage.setItem("synexan_active_backend_url", config.backendUrl);
           updatePerfStats(0, elapsed);
 
           // Tự động mở giao diện AI tức thì (0 giây chờ, không cần reload F5)
@@ -936,7 +941,15 @@
         }
       } catch (directErr) {}
 
-      updateStatusUI("offline", "Backend GPU: Offline");
+      // Nếu URL trong localStorage đã chết và Server cũng đã xoá URL chết khỏi Redis -> dọn sạch localStorage
+      if (!serverHasUrl) {
+        localStorage.removeItem("synexan_active_backend_url");
+        DEFAULT_CONFIG.backendUrl = "";
+      }
+
+      if (!isExecutingKernel) {
+        updateStatusUI("offline", "Backend GPU: Offline");
+      }
       return false;
     }
 
@@ -956,9 +969,9 @@
       cmdBadgeWrapper.style.display = "none";
       const overlayActionRow = document.getElementById("overlayActionRow");
       if (overlayActionRow) overlayActionRow.style.display = "none";
-      overlaySubText.textContent = "Đang gửi yêu cầu kích hoạt GPU đến GitHub Actions (Zero-Leak)...";
+      overlaySubText.textContent = "Đang kiểm tra phiên GPU & gửi yêu cầu khởi động đến GitHub Actions...";
 
-      updateStep(1, "running", "1. Đang kích hoạt GitHub Actions...");
+      updateStep(1, "running", "1. Đang kiểm tra & kích hoạt GitHub Actions...");
       updateStep(2, "", "2. Hệ thống kiểm tra Quota và tự động xoay tài khoản...");
       updateStep(3, "", "3. Khởi động GPU Tesla T4 & nạp mô hình AI...");
       updateStep(4, "", "4. Thiết lập đường hầm Cloudflare & kết nối...");
@@ -970,6 +983,18 @@
         if (!res.ok || !data.success) {
           throw new Error(data.error || "Không thể kích hoạt GitHub Actions");
         }
+
+        // Nếu Server phát hiện Backend GPU đã Online sẵn, mở giao diện ngay tức thì!
+        if (data.alreadyOnline && data.activeBackendUrl) {
+          DEFAULT_CONFIG.backendUrl = data.activeBackendUrl;
+          localStorage.setItem("synexan_active_backend_url", data.activeBackendUrl);
+          isExecutingKernel = false;
+          btnConnectApiTop.disabled = false;
+          btnConnectApiOverlay.disabled = false;
+          onBackendConnected(data.activeBackendUrl, 85);
+          return;
+        }
+
         updateStep(1, "done", "1. Đã gửi tín hiệu khởi động thành công!");
         updateStep(2, "running", "2. Đang kiểm tra quota & cấp phát GPU Tesla T4...");
         showToast("Đã kích hoạt GPU tự động! Đang chờ khởi động...", "success");
@@ -980,10 +1005,11 @@
         btnConnectApiOverlay.disabled = false;
         btnConnectApiTopText.textContent = "Kích hoạt GPU Kaggle";
         btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
+        if (overlayActionRow) overlayActionRow.style.display = "flex";
         updateStep(1, "error", `1. Lỗi: ${err.message}`);
         updateStatusUI("offline", "Kích hoạt thất bại");
         showToast(`Lỗi: ${err.message}`, "error");
-        startMonitorExecution();
+        startWaitingForBackendSignal();
       }
     }
 
@@ -991,7 +1017,6 @@
     function startMonitorExecution() {
       if (monitorTimer) clearInterval(monitorTimer);
       let seconds = 0;
-      let hasRetriedQueue = false;
       const MAX_WAIT_SECONDS = 300; // 5 phút
 
       monitorTimer = setInterval(async () => {
@@ -1005,6 +1030,7 @@
             const cfg = await cfgRes.json();
             if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
               DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
             }
             if (cfg && cfg.kernelLog) {
               const kLog = cfg.kernelLog;
@@ -1012,7 +1038,8 @@
               if (kLog.message) {
                 overlaySubText.textContent = kLog.message;
               }
-              if (kLog.details && kLog.details.startsWith("http") && btnOpenKagglePublic) {
+              // Chỉ cập nhật link nút Mở Kaggle nếu details thực sự là link Kaggle
+              if (kLog.details && kLog.details.includes("kaggle.com/code/") && btnOpenKagglePublic) {
                 btnOpenKagglePublic.href = kLog.details;
               }
               if (kLog.status === "queued") {
@@ -1039,22 +1066,10 @@
           if (seconds >= 15 && seconds < 45) {
             updateStep(2, "done", "2. Đã cấp phát GPU Tesla T4 thành công!");
             updateStep(3, "running", `3. Đang cài đặt thư viện & nạp mô hình AI (${seconds}s)...`);
-          } else if (seconds >= 45 && seconds < 120) {
+          } else if (seconds >= 45) {
             updateStep(3, "done", "3. Đã nạp xong mô hình AI!");
             updateStep(4, "running", `4. Đang kết nối đường hầm AI Cloudflare / Gradio (${seconds}s)...`);
           }
-        }
-
-        // Tự động phá nghẽn nếu hàng đợi Kaggle bị kẹt quá 120s (2 phút) - CHỈ CHẠY 1 LẦN DUY NHẤT
-        if (seconds >= 120 && !hasRetriedQueue) {
-          hasRetriedQueue = true;
-          updateStep(2, "running", "2. Hàng đợi Kaggle hơi chậm, đang tự động kiểm tra tối ưu tài khoản...");
-          showToast("Đang kiểm tra và tối ưu kết nối GPU...", "info");
-          fetch("/api/wake-gpu", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ force: true })
-          }).catch(() => {});
         }
 
         // 2. Kiểm tra trực tiếp tính khả dụng của Backend URL
@@ -1067,23 +1082,14 @@
               const pData = await pRes.json();
               if (pData.online) {
                 clearInterval(monitorTimer);
+                monitorTimer = null;
+                isExecutingKernel = false;
+                btnConnectApiTop.disabled = false;
+                btnConnectApiOverlay.disabled = false;
+                btnConnectApiTopText.textContent = "Chạy lại Model";
+                btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
                 updateStep(4, "done", "4. Kết nối đường hầm AI thành công!");
-                updateStatusUI("online", `Backend GPU: Online (${pData.latencyMs || 0}ms)`);
-
-                overlaySubText.textContent = "Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
-                showToast("GPU AI đã online! Đang mở giao diện...", "success");
-
-                frame.src = currentConfig.backendUrl;
-
-                setTimeout(() => {
-                  hideOverlay();
-                  isExecutingKernel = false;
-                  btnConnectApiTop.disabled = false;
-                  btnConnectApiOverlay.disabled = false;
-                  btnConnectApiTopText.textContent = "Chạy lại Model";
-                  btnConnectApiOverlayText.textContent = "KẾT NỐI GPU KAGGLE";
-                  if (cmdBadgeWrapper) cmdBadgeWrapper.style.display = "flex";
-                }, 800);
+                onBackendConnected(currentConfig.backendUrl, pData.latencyMs || 85);
                 return;
               }
             }
@@ -1092,14 +1098,17 @@
 
         if (seconds >= MAX_WAIT_SECONDS) {
           clearInterval(monitorTimer);
+          monitorTimer = null;
           isExecutingKernel = false;
           btnConnectApiTop.disabled = false;
           btnConnectApiOverlay.disabled = false;
           btnConnectApiTopText.textContent = "Thử lại GPU";
           btnConnectApiOverlayText.textContent = "KẾT NỐI LẠI GPU";
+          const overlayActionRow = document.getElementById("overlayActionRow");
+          if (overlayActionRow) overlayActionRow.style.display = "flex";
           updateStep(4, "error", "4. Quá thời gian chờ (5 phút). Vui lòng thử lại.");
-          cmdBadgeWrapper.style.display = "flex";
-          showToast("Quá thời gian kết nối. Vui lòng thử lại.", "error");
+          showToast("Quá thời gian kết nối. Hệ thống vẫn đang lắng nghe tín hiệu ngầm.", "error");
+          startWaitingForBackendSignal();
         }
       }, 3000);
     }
@@ -1271,7 +1280,7 @@
     }
 
     // ========================================================================
-    // TỰ ĐỘNG ĐÁNH THỨC / CHỜ KẾT NỐI THEO YÊU CẦU (PASSIVE LISTENER AN TOÀN)
+    // TỰ ĐỘNG KẾT NỐI NẾU ONLINE HOẶC LẮNG NGHE TỨC THÌ (PASSIVE & RESPONSIVE)
     // ========================================================================
     async function initAutoLifecycle() {
       // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước
@@ -1280,7 +1289,7 @@
         DEFAULT_CONFIG.backendUrl = cached;
       }
 
-      // 2. Đồng bộ URL Backend mới nhất từ Server Vercel / GitHub
+      // 2. Đồng bộ URL Backend mới nhất từ Upstash Redis qua /api/config
       try {
         const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
@@ -1288,6 +1297,10 @@
           if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
             localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
+          } else {
+            // Nếu Upstash Redis trống (hoặc đã xoá URL chết), xóa cache cũ
+            localStorage.removeItem("synexan_active_backend_url");
+            DEFAULT_CONFIG.backendUrl = "";
           }
         }
       } catch (e) {}
@@ -1296,70 +1309,28 @@
       const isOnline = await checkBackendOnline();
       if (isOnline) {
         const currentConfig = getConfig();
-        onBackendConnected(currentConfig.backendUrl, 120);
-        console.log("[LIFECYCLE] ✅ Backend GPU đang Online. Sử dụng phiên hiện tại (không ngắt, không nạp lại).");
+        onBackendConnected(currentConfig.backendUrl, 85);
+        console.log("[LIFECYCLE] Backend GPU đang Online. Mở giao diện ngay tức thì.");
         return;
       }
 
-      // 4. Nếu chưa Online ngay: BẬT CHẾ ĐỘ LẮNG NGHE THỤ ĐỘNG (15 GIÂY)
-      // TUYỆT ĐỐI KHÔNG TỰ TIỆN GỌI wake-gpu ĐỂ TRÁNH HẠ GỤC NOTEBOOK ĐANG CHẠY!
-      console.log("[LIFECYCLE] ⏳ Đang ở chế độ lắng nghe thụ động (Passive Listening 15s)...");
+      // 4. Nếu chưa Online ngay: Hiển thị nút điều khiển ngay lập tức & lắng nghe ngầm mỗi 2s
+      // Nếu người dùng đang mở Kaggle chạy thủ công, web sẽ tự bắt tín hiệu và mở giao diện trong <2s!
       showOverlay();
-      updateStatusUI("connecting", "Đang dò tìm GPU Backend...");
+      updateStatusUI("offline", "Chưa kết nối GPU");
       if (overlaySubText) {
-        overlaySubText.textContent = "Đang kiểm tra kết nối với máy chủ GPU (lắng nghe tín hiệu)...";
+        overlaySubText.textContent = "Đang lắng nghe tín hiệu từ Kaggle GPU. Bạn có thể bấm 'Kích hoạt GPU Tự động' hoặc chạy trực tiếp trên Kaggle.";
       }
       const stepTextElem = document.getElementById("overlayActiveStepText");
-      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu Heartbeat từ GPU...";
+      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu Heartbeat từ GPU (tự động mở khi sẵn sàng)...";
       const progressFill = document.getElementById("overlayProgressBarFill");
-      if (progressFill) progressFill.style.width = "40%";
+      if (progressFill) progressFill.style.width = "100%";
 
       const overlayActionRow = document.getElementById("overlayActionRow");
-      if (overlayActionRow) overlayActionRow.style.display = "none";
+      if (overlayActionRow) overlayActionRow.style.display = "flex";
 
-      let checkCount = 0;
-      const maxChecks = 10; // 10 lần * 1.5s = 15 giây
-      const passiveInterval = setInterval(async () => {
-        checkCount++;
-        const pct = Math.min(90, 40 + checkCount * 5);
-        if (progressFill) progressFill.style.width = `${pct}%`;
-
-        // Quét URL mới từ server Vercel
-        try {
-          const cfgRes = await fetch("/api/config", { cache: "no-store" });
-          if (cfgRes.ok) {
-            const cfg = await cfgRes.json();
-            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
-              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
-              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
-            }
-          }
-        } catch (e) {}
-
-        const onlineNow = await checkBackendOnline();
-        if (onlineNow) {
-          clearInterval(passiveInterval);
-          const currentConfig = getConfig();
-          onBackendConnected(currentConfig.backendUrl, 100);
-          console.log("[LIFECYCLE] 🎯 GPU Backend đã kết nối thành công trong thời gian chờ thụ động!");
-          return;
-        }
-
-        if (checkCount >= maxChecks) {
-          clearInterval(passiveInterval);
-          console.log("[LIFECYCLE] ℹ️ Hết 15s chờ thụ động. Chuyển sang chế độ người dùng chủ động lựa chọn.");
-          updateStatusUI("offline", "Chưa kết nối GPU");
-          if (overlaySubText) {
-            overlaySubText.textContent = "Chưa phát hiện GPU Backend đang chạy. Bạn có thể bấm 'Kích hoạt GPU Tự động' hoặc mở Kaggle.";
-          }
-          if (stepTextElem) stepTextElem.textContent = "Sẵn sàng nhận lệnh kích hoạt...";
-          if (progressFill) progressFill.style.width = "100%";
-          if (overlayActionRow) overlayActionRow.style.display = "flex";
-
-          // Tiếp tục lắng nghe ngầm định kỳ mỗi 5s (nếu người dùng bấm Run notebook trên Kaggle, web sẽ tự nhận)
-          startWaitingForBackendSignal();
-        }
-      }, 1500);
+      // Liên tục lắng nghe ngầm mỗi 2s (bắt tín hiệu ngay khi Kaggle chạy xong)
+      startWaitingForBackendSignal();
     }
     initAutoLifecycle();
 

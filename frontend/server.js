@@ -10,7 +10,7 @@ let activeBackendUrl = DEFAULT_BACKEND_URL;
 let localKernelLog = null;
 
 // ============================================================================
-// GITHUB & PERSISTENT STORAGE HELPERS
+// GITHUB CREDENTIALS HELPER
 // ============================================================================
 function getGitHubCredentials() {
     let ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
@@ -33,147 +33,46 @@ function getGitHubCredentials() {
     return { ghToken, ghRepo };
 }
 
-const LOCAL_BACKEND_JSON_PATHS = [
-    path.join(__dirname, '..', 'backend-url.json'),
-    path.join(__dirname, 'backend-url.json')
-];
-
-// Nạp URL từ backend-url.json cục bộ khi khởi động (nếu có)
-for (const p of LOCAL_BACKEND_JSON_PATHS) {
-    if (fs.existsSync(p)) {
-        try {
-            const raw = fs.readFileSync(p, 'utf8');
-            const parsed = JSON.parse(raw);
-            if (parsed && parsed.activeBackendUrl && parsed.activeBackendUrl.startsWith('http')) {
-                activeBackendUrl = parsed.activeBackendUrl;
-                console.log(`[INFO] 📄 Nạp activeBackendUrl từ file ${p}: ${activeBackendUrl}`);
-                break;
-            }
-        } catch (e) {}
-    }
-}
-
-async function persistBackendUrlToGitHub(url) {
-    const { ghToken, ghRepo } = getGitHubCredentials();
-    if (!ghToken) return;
-
-    try {
-        const fileUrl = `https://api.github.com/repos/${ghRepo}/contents/backend-url.json`;
-        const headers = {
-            'Authorization': `Bearer ${ghToken}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'FrontendFlood-Persistence'
-        };
-
-        let sha = null;
-        try {
-            const getRes = await fetch(fileUrl, { headers, signal: AbortSignal.timeout(3500) });
-            if (getRes.ok) {
-                const fileData = await getRes.json();
-                sha = fileData.sha;
-            }
-        } catch (e) {}
-
-        const contentObj = {
-            activeBackendUrl: url,
-            updatedAt: new Date().toISOString(),
-            source: 'heartbeat_auto_sync'
-        };
-        const encodedContent = Buffer.from(JSON.stringify(contentObj, null, 2)).toString('base64');
-
-        const putBody = {
-            message: `chore: sync live backend url ${url} [skip ci]`,
-            content: encodedContent
-        };
-        if (sha) putBody.sha = sha;
-
-        const putRes = await fetch(fileUrl, {
-            method: 'PUT',
-            headers: {
-                ...headers,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(putBody),
-            signal: AbortSignal.timeout(6000)
-        });
-
-        if (putRes.ok) {
-            console.log(`[INFO] 🚀 Đã lưu persistent backend-url.json lên GitHub thành công!`);
-        } else {
-            console.warn(`[WARN] GitHub Contents API trả về HTTP ${putRes.status}`);
-        }
-    } catch (err) {
-        console.error('[WARN] Failed to persist backend URL to GitHub:', err.message);
-    }
-}
-
 // ============================================================================
-// UPSTASH REDIS REST API & GITHUB PERSISTENT CLIENT
+// UPSTASH REDIS REST API CLIENT (SINGLE SOURCE OF TRUTH ACROSS LAMBDAS)
 // ============================================================================
 async function getStoredBackendUrl() {
-    if (activeBackendUrl && activeBackendUrl.startsWith('http')) {
-        return activeBackendUrl;
-    }
-
     const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
         try {
-            const res = await fetch(`${redisUrl}/get/activeBackendUrl`, {
+            const res = await fetch(`${redisUrl.replace(/\/+$/, '')}/get/activeBackendUrl`, {
                 method: 'GET',
-                headers: { Authorization: `Bearer ${redisToken}` },
+                headers: {
+                    Authorization: `Bearer ${redisToken}`,
+                    'Cache-Control': 'no-store'
+                },
+                cache: 'no-store',
                 signal: AbortSignal.timeout(3500)
             });
             if (res.ok) {
                 const data = await res.json();
-                if (data && data.result) {
+                if (data && data.result && typeof data.result === 'string' && data.result.startsWith('http')) {
                     activeBackendUrl = data.result;
                     return activeBackendUrl;
                 }
+                activeBackendUrl = "";
+                return DEFAULT_BACKEND_URL;
             }
         } catch (err) {
             console.error('[WARN] Failed to read activeBackendUrl from Upstash Redis:', err.message);
         }
     }
-
-    // Đọc từ raw GitHub nếu Vercel vừa cold-start
-    const { ghRepo } = getGitHubCredentials();
-    if (ghRepo) {
-        try {
-            const rawRes = await fetch(`https://raw.githubusercontent.com/${ghRepo}/main/backend-url.json?t=${Date.now()}`, {
-                signal: AbortSignal.timeout(3500),
-                cache: 'no-store'
-            });
-            if (rawRes.ok) {
-                const rawData = await rawRes.json();
-                if (rawData && rawData.activeBackendUrl && rawData.activeBackendUrl.startsWith('http')) {
-                    activeBackendUrl = rawData.activeBackendUrl;
-                    console.log(`[INFO] 🌐 Nạp activeBackendUrl từ GitHub Raw: ${activeBackendUrl}`);
-                    return activeBackendUrl;
-                }
-            }
-        } catch (err) {}
-    }
-
     return activeBackendUrl || DEFAULT_BACKEND_URL;
 }
 
 async function setStoredBackendUrl(url) {
     activeBackendUrl = url;
-
-    // 1. Lưu cục bộ nếu hệ thống file cho phép ghi
-    for (const p of LOCAL_BACKEND_JSON_PATHS) {
-        try {
-            fs.writeFileSync(p, JSON.stringify({ activeBackendUrl: url, updatedAt: new Date().toISOString() }, null, 2));
-        } catch (e) {}
-    }
-
-    // 2. Lưu vào Upstash Redis nếu có
     const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl, {
+            await fetch(redisUrl.replace(/\/+$/, ''), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -187,9 +86,6 @@ async function setStoredBackendUrl(url) {
             console.error('[WARN] Failed to write activeBackendUrl to Upstash Redis:', err.message);
         }
     }
-
-    // 3. Bất đồng bộ đồng bộ lên GitHub backend-url.json (Zero Data Loss)
-    persistBackendUrlToGitHub(url).catch(() => {});
 }
 
 async function getStoredKernelLog() {
@@ -197,16 +93,21 @@ async function getStoredKernelLog() {
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
         try {
-            const res = await fetch(`${redisUrl}/get/kernelLog`, {
+            const res = await fetch(`${redisUrl.replace(/\/+$/, '')}/get/kernelLog`, {
                 method: 'GET',
-                headers: { Authorization: `Bearer ${redisToken}` },
+                headers: {
+                    Authorization: `Bearer ${redisToken}`,
+                    'Cache-Control': 'no-store'
+                },
+                cache: 'no-store',
                 signal: AbortSignal.timeout(3500)
             });
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.result) {
                     try {
-                        return JSON.parse(data.result);
+                        localKernelLog = JSON.parse(data.result);
+                        return localKernelLog;
                     } catch {
                         return { message: data.result };
                     }
@@ -225,7 +126,7 @@ async function setStoredKernelLog(logData) {
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl, {
+            await fetch(redisUrl.replace(/\/+$/, ''), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -247,7 +148,7 @@ async function clearStoredBackendUrl() {
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl, {
+            await fetch(redisUrl.replace(/\/+$/, ''), {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -261,6 +162,37 @@ async function clearStoredBackendUrl() {
             console.error('[WARN] Failed to delete activeBackendUrl from Upstash Redis:', err.message);
         }
     }
+}
+
+async function probeBackendAlive(targetUrl, timeoutMs = 4500) {
+    if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+        return { online: false, statusCode: 0, latencyMs: 0 };
+    }
+    const base = targetUrl.replace(/\/+$/, '');
+    const t0 = Date.now();
+    for (const ep of ['/config', '/heartbeat']) {
+        try {
+            const response = await fetch(base + ep, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'ngrok-skip-browser-warning': 'true'
+                },
+                cache: 'no-store',
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+            const latencyMs = Date.now() - t0;
+            if (response.ok) {
+                return { online: true, statusCode: response.status, latencyMs };
+            }
+            if (response.status === 530 || response.status === 1033) {
+                return { online: false, statusCode: response.status, latencyMs, tunnelDead: true };
+            }
+        } catch (err) {
+            // Tiếp tục thử endpoint kế tiếp
+        }
+    }
+    return { online: false, statusCode: 0, latencyMs: Date.now() - t0 };
 }
 
 app.use(cors());
@@ -281,11 +213,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
     maxAge: 0
 }));
 
-// Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot)
+// Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot & heartbeat)
 app.post('/api/backend-url', async (req, res) => {
-    const { url } = req.body;
+    const { url } = req.body || {};
     if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
         const cleanUrl = url.trim().replace(/\/+$/, '');
+        // Không nhận nhầm URL api.trycloudflare.com
+        if (cleanUrl.includes('api.trycloudflare.com')) {
+            return res.status(400).json({ error: 'Ignored internal api.trycloudflare.com URL' });
+        }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
             status: 'ready',
@@ -327,36 +263,25 @@ app.get('/api/config', async (req, res) => {
 // Server-side Heartbeat Status Check
 app.get('/api/status', async (req, res) => {
     const currentUrl = await getStoredBackendUrl();
-    const targetUrl = req.query.target || currentUrl;
-    if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+    const targetUrl = (req.query.target || currentUrl || '').trim().replace(/\/+$/, '');
+    if (!targetUrl || !targetUrl.startsWith('http')) {
         return res.json({ online: false, error: 'Chưa có URL Backend nào được cấu hình' });
     }
 
-    let checkUrl = targetUrl.replace(/\/+$/, '') + '/config';
-    const t0 = Date.now();
+    const probe = await probeBackendAlive(targetUrl, 4500);
 
-    try {
-        const response = await fetch(checkUrl, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'ngrok-skip-browser-warning': 'true'
-            },
-            signal: AbortSignal.timeout(5000)
-        });
-
-        const latencyMs = Date.now() - t0;
-        return res.json({
-            online: response.ok,
-            statusCode: response.status,
-            latencyMs
-        });
-    } catch (err) {
-        return res.json({
-            online: false,
-            error: err.name === 'TimeoutError' ? 'timeout' : err.message
-        });
+    // Nếu URL đang lưu trong Redis thực sự là tunnel đã đóng (HTTP 530 / 1033), tự động dọn sạch để đón URL mới
+    if (!probe.online && probe.tunnelDead && currentUrl && targetUrl === currentUrl.replace(/\/+$/, '')) {
+        console.log(`[INFO] 🧹 Tunnel cũ (${targetUrl}) trả về HTTP ${probe.statusCode} (đã đóng). Đang xóa khỏi Redis...`);
+        await clearStoredBackendUrl();
     }
+
+    return res.json({
+        online: probe.online,
+        statusCode: probe.statusCode,
+        latencyMs: probe.latencyMs,
+        activeBackendUrl: probe.online ? targetUrl : ""
+    });
 });
 
 // Endpoint bảo mật kích hoạt GitHub Actions tự động xoay vòng & khởi động GPU Kaggle
@@ -364,6 +289,22 @@ let lastWakeTime = 0;
 app.post('/api/wake-gpu', async (req, res) => {
     try {
         const isForce = !!(req.body && (req.body.force === true || req.body.force === 'true'));
+
+        // 1. Bảo vệ tuyệt đối phiên đang chạy: Nếu Backend hiện tại đang Online 200 OK, trả về luôn, KHÔNG gọi GitHub Actions!
+        const currentUrl = await getStoredBackendUrl();
+        if (currentUrl && !isForce) {
+            const probe = await probeBackendAlive(currentUrl, 4000);
+            if (probe.online) {
+                console.log(`[INFO] ✅ Backend GPU đang Online tại ${currentUrl}. Bỏ qua lệnh wake-gpu để bảo vệ phiên đang chạy!`);
+                return res.json({
+                    success: true,
+                    alreadyOnline: true,
+                    activeBackendUrl: currentUrl,
+                    message: 'Backend GPU đang hoạt động sẵn sàng! Đang kết nối trực tiếp...'
+                });
+            }
+        }
+
         const now = Date.now();
         if (!isForce && now - lastWakeTime < 30000) {
             console.log('[INFO] ⏳ Wake GPU request ignored (rate limit: 30s cooldown).');
@@ -384,17 +325,7 @@ app.post('/api/wake-gpu', async (req, res) => {
             });
         }
 
-        if (isForce) {
-            console.log('[INFO] ⚡ Force restart requested by client (breaking queue stall).');
-            const oldUrl = await getStoredBackendUrl();
-            if (oldUrl) {
-                console.log(`[CLEAN SHUTDOWN] 🛑 Tắt phiên GPU cũ tại ${oldUrl}/shutdown trước khi tạo phiên mới...`);
-                try {
-                    await fetch(`${oldUrl}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(2000) }).catch(() => {});
-                } catch (e) {}
-                await clearStoredBackendUrl();
-            }
-        }
+        // TUYỆT ĐỐI KHÔNG gọi /shutdown tại đây để tránh bóp chết phiên GPU mà người dùng vừa bật thủ công!
 
         const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {
             method: 'POST',

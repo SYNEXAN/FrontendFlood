@@ -348,6 +348,9 @@ def cleanup_stale_kernels(username, current_slug=None):
                 if username.lower() in kernel_ref.lower() and "synexan" in kernel_ref.lower():
                     if current_slug and current_slug.lower() in kernel_ref.lower():
                         continue
+                    # Bảo vệ tuyệt đối notebook Public cố định để link trên Web không bao giờ bị 404
+                    if kernel_ref.lower().endswith("/synexan-flood-backend-gpu"):
+                        continue
 
                     time.sleep(1) # Nghỉ nhẹ giữa các lệnh để tôn trọng rate limit
                     st_proc = subprocess.run(
@@ -535,9 +538,9 @@ def wait_for_live_backend_and_test(username, slug, timeout_seconds=300):
                 print(f"   [{elapsed}s/{timeout_seconds}s] Vercel Status: {k_status} | Msg: {k_msg}")
 
                 candidate_url = None
-                if k_details and k_details.startswith("http"):
+                if k_details and k_details.startswith("http") and "kaggle.com" not in k_details:
                     candidate_url = k_details
-                elif live_url and live_url.startswith("http"):
+                elif live_url and live_url.startswith("http") and "kaggle.com" not in live_url:
                     if live_url != initial_url or k_status == "ready":
                         candidate_url = live_url
 
@@ -595,6 +598,26 @@ def main():
     print("=" * 70)
     print("🤖 SYNEXAN SMART KAGGLE ROTATION RUNNER (DYNAMIC NEW NOTEBOOK)")
     print("=" * 70)
+
+    # 0. Kiểm tra trước xem đã có Backend GPU nào đang Online trên Vercel hay chưa (tránh đè phiên chạy thủ công)
+    if not FORCE_PUSH:
+        try:
+            req_pre = urllib.request.Request(
+                "https://frontend-flood.vercel.app/api/config",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            with urllib.request.urlopen(req_pre, timeout=8) as resp:
+                pre_data = json.loads(resp.read().decode("utf-8"))
+                existing_url = (pre_data.get("defaultBackendUrl") or "").strip()
+                if existing_url and existing_url.startswith("http") and "kaggle.com" not in existing_url:
+                    is_alive, _, probe_msg = verify_backend_health(existing_url, timeout=6)
+                    if is_alive:
+                        print(f"🎉 [ALREADY ONLINE] Phát hiện Backend GPU đang hoạt động tại: {existing_url} ({probe_msg})")
+                        print("👉 Giữ nguyên phiên hiện tại, không đẩy thêm notebook mới.")
+                        report_kernel_state("ready", "Backend GPU đang hoạt động ổn định!", existing_url, "active")
+                        sys.exit(0)
+        except Exception as e:
+            print(f"ℹ️ [Pre-check] Chưa xác nhận được backend online sẵn: {e}")
 
     accounts = load_accounts()
     if not accounts:
