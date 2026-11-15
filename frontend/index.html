@@ -91,6 +91,31 @@
       user-select: none;
     }
 
+    .stream-health-pill {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+
+    .stream-health-pill.healthy {
+      border-color: rgba(34, 197, 94, 0.5);
+      color: #86efac;
+    }
+
+    .stream-health-pill.buffering {
+      border-color: rgba(245, 158, 11, 0.5);
+      color: #fde68a;
+    }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -553,7 +578,11 @@
       <span id="topStatusText">Đang kết nối Backend GPU...</span>
     </div>
 
-    <!-- Nút Kết Nối API Model -->
+    <!-- Stream Health Indicator (GPU Canvas Jitter Buffer) -->
+    <div class="status-pill stream-health-pill" id="streamHealthPill" style="display: none;" title="Trạng thái Bộ đệm Video (GPU Canvas Jitter Buffer)">
+      <span class="status-dot online" id="streamHealthDot"></span>
+      <span id="streamHealthText">⚡ Stream: 30 FPS | Đệm: 5 frames</span>
+    </div>
 
     <!-- Nút Tải lại Iframe -->
     <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
@@ -974,6 +1003,46 @@
         if (online) {
           hideOverlay();
           showToast("Giao diện AI Model đã sẵn sàng!", "success");
+        }
+      }
+    });
+
+    // ========================================================================
+    // BỘ ĐỆM JITTER BUFFER & GIÁM SÁT SỨC KHỎE LUỒNG VIDEO (GPU CANVAS STREAM)
+    // ========================================================================
+    const streamHealthPill = document.getElementById("streamHealthPill");
+    const streamHealthDot = document.getElementById("streamHealthDot");
+    const streamHealthText = document.getElementById("streamHealthText");
+    let streamHideTimer = null;
+
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "STREAM_HEALTH") {
+        const { fps, bufferCount, status, latencyMs } = event.data;
+
+        if (status === "idle" || (fps === 0 && bufferCount === 0)) {
+          if (streamHideTimer) clearTimeout(streamHideTimer);
+          streamHideTimer = setTimeout(() => {
+            if (streamHealthPill) streamHealthPill.style.display = "none";
+          }, 3500);
+          return;
+        }
+
+        if (streamHideTimer) clearTimeout(streamHideTimer);
+        if (streamHealthPill) {
+          streamHealthPill.style.display = "inline-flex";
+          if (status === "healthy" || bufferCount >= 3) {
+            streamHealthPill.className = "status-pill stream-health-pill healthy";
+            if (streamHealthDot) streamHealthDot.className = "status-dot online";
+            if (streamHealthText) {
+              streamHealthText.innerHTML = `🟢 <b>${fps || 30} FPS</b> | Đệm: ${bufferCount} frames (${latencyMs || 150}ms)`;
+            }
+          } else {
+            streamHealthPill.className = "status-pill stream-health-pill buffering";
+            if (streamHealthDot) streamHealthDot.className = "status-dot pulsing";
+            if (streamHealthText) {
+              streamHealthText.innerHTML = `🟡 Đang đệm: ${bufferCount} frames | Giữ mượt...`;
+            }
+          }
         }
       }
     });
