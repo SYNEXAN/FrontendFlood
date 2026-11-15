@@ -251,7 +251,6 @@ app.post('/api/wake-gpu', async (req, res) => {
             });
         }
 
-        const isForce = !!(req.body && (req.body.force === true || req.body.force === 'true'));
         if (isForce) {
             console.log('[INFO] ⚡ Force restart requested by client (breaking queue stall).');
         }
