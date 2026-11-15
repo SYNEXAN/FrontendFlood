@@ -317,7 +317,10 @@ app.post('/api/backend-shutdown', async (req, res) => {
 
 // Fallback all routes to index.html for SPA
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    const publicIndex = path.join(__dirname, 'public', 'index.html');
+    const rootIndex = path.join(__dirname, 'index.html');
+    const targetFile = fs.existsSync(publicIndex) ? publicIndex : rootIndex;
+    res.sendFile(targetFile);
 });
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {

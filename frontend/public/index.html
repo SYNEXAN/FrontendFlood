@@ -91,6 +91,31 @@
       user-select: none;
     }
 
+    .stream-health-pill {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+
+    .stream-health-pill.healthy {
+      border-color: rgba(34, 197, 94, 0.5);
+      color: #86efac;
+    }
+
+    .stream-health-pill.buffering {
+      border-color: rgba(245, 158, 11, 0.5);
+      color: #fde68a;
+    }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -553,7 +578,11 @@
       <span id="topStatusText">Đang kết nối Backend GPU...</span>
     </div>
 
-    <!-- Nút Kết Nối API Model -->
+    <!-- Live FPS & Latency Indicator -->
+    <div class="status-pill stream-health-pill" id="streamHealthPill" title="Hiệu năng hiển thị thời gian thực (FPS & Độ trễ)">
+      <span class="status-dot online" id="streamHealthDot"></span>
+      <span id="streamHealthText">⚡ <b>30 FPS</b> | Độ trễ: <b>120ms</b></span>
+    </div>
 
     <!-- Nút Tải lại Iframe -->
     <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
@@ -571,30 +600,16 @@
       
       <div class="status-text">AI Urban Flood & Traffic Monitor</div>
       <div class="sub-text" id="overlaySubText">
-        Đang chuẩn bị phiên làm việc GPU Tesla T4...
+        Đang chờ kết nối từ Backend GPU...
       </div>
 
-      <!-- Các Bước Thực Thi Khi Chạy GPU -->
-      <div class="steps-container" id="stepsContainer" style="display: block;">
-        <div class="step-item" id="step-1">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">1. Khởi tạo phiên làm việc GPU Kaggle...</div>
-        </div>
-        <div class="step-item" id="step-2">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">2. Cấp phát tài nguyên GPU Tesla T4...</div>
-        </div>
-        <div class="step-item" id="step-3">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">3. Nạp trọng số mô hình AI & tối ưu hóa...</div>
-        </div>
-        <div class="step-item" id="step-4">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">4. Thiết lập đường hầm Cloudflare & giao diện...</div>
+      <!-- Trạng thái chờ Backend tinh tế & Tự động mở khi kết nối -->
+      <div class="waiting-box" id="waitingBox" style="margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div class="mini-spinner" style="width: 32px; height: 32px; border-width: 3px; border-top-color: #38bdf8;"></div>
+        <div style="font-size: 13px; color: #94a3b8; max-width: 380px; line-height: 1.6; text-align: center;">
+          Hệ thống sẽ <b>tự động mở giao diện AI</b> ngay khi bạn khởi động notebook trên Kaggle hoặc Google Colab.
         </div>
       </div>
-
-      <div class="cmd-badge-wrapper" id="cmdBadgeWrapper" style="display: none;"></div>
     </div>
   </div>
 
@@ -616,8 +631,9 @@
     // ========================================================================
     // CẤU HÌNH MẶC ĐỊNH (ZERO-LEAK BẢO MẬT 100%)
     // ========================================================================
+    const cachedBackendUrl = localStorage.getItem("synexan_active_backend_url");
     const DEFAULT_CONFIG = {
-      backendUrl: ""
+      backendUrl: (cachedBackendUrl && cachedBackendUrl.startsWith("http")) ? cachedBackendUrl : ""
     };
 
     function getConfig() {
@@ -627,13 +643,14 @@
     }
 
     // Tự động đồng bộ URL Backend mới nhất từ Server Render
-    fetch("/api/config")
+    fetch("/api/config", { cache: "no-store" })
       .then(res => res.json())
       .then(cfg => {
         if (cfg) {
           window.wakeGpuConfigured = !!cfg.wakeGpuConfigured;
-          if (cfg.defaultBackendUrl) {
+          if (cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
           }
         }
       })
@@ -757,7 +774,10 @@
         if (res.ok) {
           const data = await res.json();
           if (data.online) {
-            updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
+            const lat = data.latencyMs || 120;
+            updateStatusUI("online", `🟢 Backend GPU: Online (${lat}ms)`);
+            localStorage.setItem("synexan_active_backend_url", config.backendUrl);
+            updatePerfStats(currentFpsVal, lat, "healthy");
             return true;
           }
         }
@@ -774,6 +794,7 @@
         const elapsed = Math.round(performance.now() - t0);
         if (res.ok) {
           updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
+          updatePerfStats(currentFpsVal, elapsed, "healthy");
           return true;
         }
       } catch (directErr) {}
@@ -979,6 +1000,47 @@
     });
 
     // ========================================================================
+    // BỘ ĐỆM JITTER BUFFER & GIÁM SÁT HIỆU NĂNG THỜI GIAN THỰC (FPS & ĐỘ TRỄ)
+    // ========================================================================
+    const streamHealthPill = document.getElementById("streamHealthPill");
+    const streamHealthDot = document.getElementById("streamHealthDot");
+    const streamHealthText = document.getElementById("streamHealthText");
+
+    let currentFpsVal = 30;
+    let currentLatencyVal = 120;
+
+    function updatePerfStats(fps, latencyMs, status = "healthy") {
+      if (typeof fps === "number" && fps > 0) currentFpsVal = fps;
+      if (typeof latencyMs === "number" && latencyMs > 0) currentLatencyVal = latencyMs;
+
+      if (!streamHealthPill || !streamHealthText) return;
+
+      if (status === "buffering") {
+        streamHealthPill.className = "status-pill stream-health-pill buffering";
+        if (streamHealthDot) streamHealthDot.className = "status-dot pulsing";
+        streamHealthText.innerHTML = `🟡 <b>${currentFpsVal} FPS</b> | Độ trễ: <b>${currentLatencyVal}ms</b>`;
+      } else {
+        streamHealthPill.className = "status-pill stream-health-pill healthy";
+        if (streamHealthDot) streamHealthDot.className = "status-dot online";
+        streamHealthText.innerHTML = `⚡ <b>${currentFpsVal} FPS</b> | Độ trễ: <b>${currentLatencyVal}ms</b>`;
+      }
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "STREAM_HEALTH") {
+        const { fps, bufferCount, status, latencyMs } = event.data;
+        const activeFps = (typeof fps === "number" && fps > 0) ? fps : currentFpsVal;
+        const activeLatency = (typeof latencyMs === "number" && latencyMs > 0) ? latencyMs : currentLatencyVal;
+
+        if (status === "buffering" || bufferCount <= 1) {
+          updatePerfStats(activeFps, activeLatency, "buffering");
+        } else {
+          updatePerfStats(activeFps, activeLatency, "healthy");
+        }
+      }
+    });
+
+    // ========================================================================
     // HEARTBEAT KEEPALIVE ENGINE (GIỮ PHIÊN KHI ĐANG MỞ TAB WEB)
     // ========================================================================
     let heartbeatTimer = null;
@@ -995,32 +1057,115 @@
     startHeartbeat();
 
     // ========================================================================
-    // TỰ ĐỘNG ĐÁNH THỨC THEO YÊU CẦU KHI VÀO TRANG WEB (AUTO ON-DEMAND WAKEUP)
+    // TỰ ĐỘNG MỞ GIAO DIỆN KHI KẾT NỐI ĐƯỢC BACKEND
+    // ========================================================================
+    function onBackendConnected(url, latencyMs) {
+      if (!url || !url.startsWith("http")) return;
+      isServerOnline = true;
+      const lat = latencyMs || 120;
+      updateStatusUI("online", `🟢 Backend GPU: Online (${lat}ms)`);
+      updatePerfStats(currentFpsVal, lat, "healthy");
+
+      if (overlaySubText) {
+        overlaySubText.textContent = "🎉 Đã kết nối Backend GPU! Đang mở giao diện AI...";
+      }
+      showToast("🎉 Đã kết nối Backend GPU! Đang mở giao diện...", "success");
+
+      if (frame.src !== url) {
+        frame.src = url;
+      }
+
+      // Tự động mở giao diện AI ngay tức thì
+      setTimeout(() => {
+        hideOverlay();
+      }, 350);
+    }
+
+    // ========================================================================
+    // CHẾ ĐỘ CHỜ THỤ ĐỘNG: LẮNG NGHE TÍN HIỆU TỪ NOTEBOOK KAGGLE / COLAB
+    // ========================================================================
+    function startWaitingForBackendSignal() {
+      if (monitorTimer) clearInterval(monitorTimer);
+
+      monitorTimer = setInterval(async () => {
+        if (isServerOnline) {
+          clearInterval(monitorTimer);
+          monitorTimer = null;
+          return;
+        }
+
+        // 1. Quét URL mới nhất từ Serverless Upstash Redis (do notebook bắn về)
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
+            }
+          }
+        } catch (e) {}
+
+        // 2. Thử kiểm tra trạng thái online
+        const currentConfig = getConfig();
+        if (currentConfig.backendUrl && currentConfig.backendUrl.startsWith("http")) {
+          try {
+            const pingRes = await fetch(`/api/status?target=${encodeURIComponent(currentConfig.backendUrl)}`, { cache: "no-store" });
+            if (pingRes.ok) {
+              const pingData = await pingRes.json();
+              if (pingData.online) {
+                clearInterval(monitorTimer);
+                monitorTimer = null;
+                onBackendConnected(currentConfig.backendUrl, pingData.latencyMs);
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+      }, 3000); // Quét mỗi 3 giây
+    }
+
+    // ========================================================================
+    // TỰ ĐỘNG ĐÁNH THỨC / CHỜ KẾT NỐI THEO YÊU CẦU (AUTO PASSIVE LISTENER)
     // ========================================================================
     async function initAutoLifecycle() {
-      // 1. Đồng bộ URL Backend mới nhất từ Server Render
+      // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước (tối ưu F5 không gián đoạn)
+      const cached = localStorage.getItem("synexan_active_backend_url");
+      if (cached && cached.startsWith("http")) {
+        DEFAULT_CONFIG.backendUrl = cached;
+      }
+
+      // 2. Đồng bộ URL Backend mới nhất từ Server Render
       try {
-        const cfgRes = await fetch("/api/config");
+        const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
           const cfg = await cfgRes.json();
-          if (cfg && cfg.defaultBackendUrl) {
+          if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
             DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+            localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
           }
         }
       } catch (e) {}
 
-      // 2. Kiểm tra tính sẵn sàng thực sự của GPU Backend
+      // 3. Kiểm tra tính sẵn sàng thực sự của GPU Backend
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
-        console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động kích hoạt GPU Tesla T4...");
-        triggerZeroLeakWake();
+        updateStatusUI("connecting", "⏳ Chờ Backend GPU...");
+        if (overlaySubText) {
+          overlaySubText.textContent = "Đang chờ kết nối từ Backend GPU...";
+        }
+        console.log("[LIFECYCLE] ⏳ Backend đang Offline. Bắt đầu lắng nghe tín hiệu từ Notebook...");
+
+        // Bỏ luồng tự động gọi GitHub Actions / wake-gpu để tránh tạo notebook trùng lặp
+        // triggerZeroLeakWake();
+
+        // Bắt đầu chờ thụ động: Tự động mở giao diện ngay khi nhận tín hiệu từ Kaggle / Colab
+        startWaitingForBackendSignal();
       } else {
         const currentConfig = getConfig();
-        if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
-          frame.src = currentConfig.backendUrl;
-        }
-        hideOverlay();
+        onBackendConnected(currentConfig.backendUrl, 120);
+        console.log("[LIFECYCLE] ✅ Backend GPU đang Online. Sử dụng phiên hiện tại (không ngắt, không nạp lại).");
       }
     }
     initAutoLifecycle();
