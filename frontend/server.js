@@ -268,16 +268,16 @@ app.post('/api/backend-url', async (req, res) => {
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
 
-        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v7_cam_presets: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v6)
-        if (version !== 'v7_cam_presets') {
+        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v8_vn_vehicle_weights: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v7)
+        if (version !== 'v8_vn_vehicle_weights') {
             return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
         }
 
-        // Nếu phiên mới là v7_cam_presets còn phiên đang lưu chưa phải v7_cam_presets -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV7 = (version === 'v7_cam_presets' && storedVersion !== 'v7_cam_presets');
+        // Nếu phiên mới là v8_vn_vehicle_weights còn phiên đang lưu chưa phải v8_vn_vehicle_weights -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV8 = (version === 'v8_vn_vehicle_weights' && storedVersion !== 'v8_vn_vehicle_weights');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV7 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        if (!isUpgradeToV8 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -285,8 +285,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        if (version === 'v7_cam_presets') {
-            activeBackendVersion = 'v7_cam_presets';
+        if (version === 'v8_vn_vehicle_weights') {
+            activeBackendVersion = 'v8_vn_vehicle_weights';
         }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({

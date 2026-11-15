@@ -15,6 +15,7 @@ import sys
 import time
 import re
 import json
+import shutil
 import socket
 import signal
 import subprocess
@@ -67,7 +68,7 @@ def push_backend_url_to_vercel(public_url, verbose=True):
 
     success_any = False
     for endpoint in TARGET_WEBHOOKS:
-        payload = json.dumps({"url": public_url, "version": "v7_cam_presets"}).encode("utf-8")
+        payload = json.dumps({"url": public_url, "version": "v8_vn_vehicle_weights"}).encode("utf-8")
         for attempt in range(1, 4):
             try:
                 req = urllib.request.Request(
@@ -160,6 +161,30 @@ def ensure_cloudflared_binary():
     return cf_bin
 
 
+def install_custom_vehicle_weights():
+    """Sao lưu trọng số cũ (yolov8s_vehicle_backup.pt) và kích hoạt trọng số mới 4 lớp VN (yolov8s_vn_vehicle_best.pt)."""
+    try:
+        custom_weight = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
+        if not os.path.exists(custom_weight) or os.path.getsize(custom_weight) < 15000000:
+            return
+        models_dir = os.path.join(WORKING_CWD, "models")
+        os.makedirs(models_dir, exist_ok=True)
+        target_weight = os.path.join(models_dir, "yolov8s_vehicle.pt")
+        backup_weight = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
+
+        # 1. Sao lưu tạm trọng số cũ nếu chưa có bản backup
+        if os.path.exists(target_weight) and not os.path.exists(backup_weight):
+            if os.path.getsize(target_weight) != os.path.getsize(custom_weight):
+                shutil.copy2(target_weight, backup_weight)
+                print(f"📦 [Weight Backup] Đã sao lưu trọng số cũ tại: {backup_weight} ({os.path.getsize(backup_weight)} bytes)")
+
+        # 2. Thay thế bằng trọng số mới (best.zip / yolov8s_vn_vehicle_best.pt)
+        shutil.copy2(custom_weight, target_weight)
+        print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện mới (4 lớp VN - mAP50=92.79%): {target_weight} ({os.path.getsize(target_weight)} bytes)")
+    except Exception as e:
+        print(f"⚠️ [Custom Weights] Lỗi cập nhật trọng số phương tiện: {e}")
+
+
 def install_compatibility_shims():
     """Cài đặt bộ vá HfFolder cho Gradio 4.44.0 và bộ đệm Smooth Stream vào tất cả templates (index.html + share.html)."""
     try:
@@ -249,6 +274,7 @@ def main():
     print("=" * 72)
 
     kill_existing_processes()
+    install_custom_vehicle_weights()
     install_compatibility_shims()
 
     state = {
@@ -352,6 +378,7 @@ def main():
     while True:
         try:
             subprocess.run(["git", "-C", "/kaggle/working/FrontendFlood", "pull", "-q"], check=False, timeout=15)
+            install_custom_vehicle_weights()
             install_compatibility_shims()
         except Exception:
             pass

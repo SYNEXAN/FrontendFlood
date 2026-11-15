@@ -511,8 +511,33 @@ def sanitize_config_dict_py(cfg):
     return cfg
 
 
+def install_custom_vehicle_weights():
+    """Sao lưu trọng số cũ (yolov8s_vehicle_backup.pt) và kích hoạt trọng số 4 lớp VN (yolov8s_vn_vehicle_best.pt)."""
+    try:
+        import shutil
+        custom_weight = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
+        if not os.path.exists(custom_weight) or os.path.getsize(custom_weight) < 15000000:
+            return
+        models_dir = "/kaggle/working/FrontendFlood/backend/models"
+        os.makedirs(models_dir, exist_ok=True)
+        target_weight = os.path.join(models_dir, "yolov8s_vehicle.pt")
+        backup_weight = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
+
+        if os.path.exists(target_weight) and not os.path.exists(backup_weight):
+            if os.path.getsize(target_weight) != os.path.getsize(custom_weight):
+                shutil.copy2(target_weight, backup_weight)
+                print(f"📦 [Weight Backup] Đã sao lưu trọng số cũ tại: {backup_weight} ({os.path.getsize(backup_weight)} bytes)")
+
+        if not os.path.exists(target_weight) or os.path.getsize(target_weight) != os.path.getsize(custom_weight):
+            shutil.copy2(custom_weight, target_weight)
+            print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện mới (4 lớp VN - mAP50=92.79%): {target_weight} ({os.path.getsize(target_weight)} bytes)")
+    except Exception as e:
+        print(f"⚠️ [Custom Weights] {e}")
+
+
 def install_gradio_runtime_hooks():
     """Hook gr.Blocks.get_config_file without modifying Component.__init__ signatures."""
+    install_custom_vehicle_weights()
     try:
         import gradio as gr
 
@@ -575,6 +600,7 @@ def install_sitecustomize_globally():
 
 
 def inject_patch():
+    install_custom_vehicle_weights()
     install_sitecustomize_globally()
     install_gradio_runtime_hooks()
     try:
@@ -633,14 +659,15 @@ def inject_patch():
         return False
 
 
-def start_v7_webhook_reporter():
-    """Đảm bảo mọi kernel đều đồng bộ version v7_cam_presets về Vercel."""
+def start_v8_webhook_reporter():
+    """Đảm bảo mọi kernel đều đồng bộ version v8_vn_vehicle_weights về Vercel."""
     try:
         import subprocess
         subprocess.run(["pkill", "-9", "-f", "synexan_v5_reporter"], check=False, stderr=subprocess.DEVNULL)
         subprocess.run(["pkill", "-9", "-f", "synexan_v7_reporter"], check=False, stderr=subprocess.DEVNULL)
+        subprocess.run(["pkill", "-9", "-f", "synexan_v8_reporter"], check=False, stderr=subprocess.DEVNULL)
         daemon_code = (
-            "# synexan_v7_reporter\n"
+            "# synexan_v8_reporter\n"
             "import time, re, os, json, urllib.request\n"
             "webhooks = ['https://frontend-flood.vercel.app/api/backend-url']\n"
             "while True:\n"
@@ -657,7 +684,7 @@ def start_v7_webhook_reporter():
             "    if url:\n"
             "        for ep in webhooks:\n"
             "            try:\n"
-            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v7_cam_presets'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v8_vn_vehicle_weights'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
             "                urllib.request.urlopen(req, timeout=8)\n"
             "            except Exception: pass\n"
         )
@@ -673,4 +700,4 @@ def start_v7_webhook_reporter():
 
 if __name__ == "__main__":
     inject_patch()
-    start_v7_webhook_reporter()
+    start_v8_webhook_reporter()
