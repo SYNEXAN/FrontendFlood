@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
 Synexan AI Root-Level UI & Smooth Stream Injector (v5_root_clean)
-1. Hooks Gradio in Python memory (gr.Blocks.get_config_file, gr.Slider, gr.State, gr.HTML)
+1. Installs sitecustomize.py into Python site-packages so app.py ALWAYS loads
+   install_gradio_runtime_hooks() at Python startup before Gradio initializes.
+2. Hooks Gradio in Python memory (gr.Blocks.get_config_file, gr.Slider, gr.State, gr.HTML)
    so all emojis/icons, "Hướng dẫn gán mốc..." and strip_width=20 are sanitized AT THE ROOT
    on the Python server before any HTML/JSON is ever generated.
-2. Injects smooth_stream_patch.js right at the top of <head> in all Gradio HTML templates
+3. Injects smooth_stream_patch.js right at the top of <head> in all Gradio HTML templates
    (index.html and share.html) so Pre-Render sanitization runs at 0ms with zero flash on reload.
-3. Ensures 100% zero modifications to the backend/ folder.
+4. Ensures 100% zero modifications to the backend/ folder.
 """
 import os
 import sys
 import re
+import site
 
 EMOJI_PATTERN = re.compile(
     r"[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\uFE0F\u200D"
@@ -141,7 +144,51 @@ def install_gradio_runtime_hooks():
         print(f"⚠️ [Runtime Hook] {e}")
 
 
+def install_sitecustomize_globally():
+    """Install sitecustomize.py into Python site-packages so app.py always imports it at startup."""
+    shim_code = (
+        "import huggingface_hub, sys, os\n"
+        "if not hasattr(huggingface_hub, 'HfFolder'):\n"
+        "    class HfFolder:\n"
+        "        @staticmethod\n"
+        "        def get_token():\n"
+        "            return os.environ.get('HF_TOKEN', None) or os.environ.get('HUGGING_FACE_HUB_TOKEN', None)\n"
+        "        @staticmethod\n"
+        "        def save_token(token): pass\n"
+        "        @staticmethod\n"
+        "        def delete_token(): pass\n"
+        "    huggingface_hub.HfFolder = HfFolder\n"
+        "    sys.modules['huggingface_hub.HfFolder'] = HfFolder\n"
+        "try:\n"
+        "    sys.path.insert(0, '/kaggle/working/FrontendFlood/scripts')\n"
+        "    import inject_smooth_stream\n"
+        "    inject_smooth_stream.install_gradio_runtime_hooks()\n"
+        "except Exception:\n"
+        "    pass\n"
+    )
+    target_dirs = []
+    try:
+        target_dirs.extend(site.getsitepackages())
+    except Exception:
+        pass
+    try:
+        usp = site.getusersitepackages()
+        if isinstance(usp, str):
+            target_dirs.append(usp)
+    except Exception:
+        pass
+
+    for d in target_dirs:
+        if d and os.path.isdir(d):
+            try:
+                with open(os.path.join(d, "sitecustomize.py"), "w", encoding="utf-8") as f:
+                    f.write(shim_code)
+            except Exception:
+                pass
+
+
 def inject_patch():
+    install_sitecustomize_globally()
     install_gradio_runtime_hooks()
     try:
         import gradio
@@ -199,51 +246,33 @@ def inject_patch():
         return False
 
 
-def start_legacy_fork_keepalive():
-    if os.environ.get("SYNEXAN_LAUNCHER_ACTIVE") == "1":
-        return
+def start_v5_webhook_reporter():
+    """Đảm bảo mọi kernel (kể cả kernel đang chạy vòng lặp launcher cũ) đều đồng bộ version v5_root_clean về Vercel."""
     try:
         import subprocess
-        import signal
-        my_pid = os.getpid()
-        parent_pid = os.getppid()
-        out = subprocess.check_output(["ps", "-ef"], text=True)
-        for line in out.splitlines():
-            if "app.py" in line and "inject_smooth_stream" not in line:
-                parts = line.split()
-                if len(parts) > 1 and parts[1].isdigit():
-                    pid = int(parts[1])
-                    if pid not in (my_pid, parent_pid):
-                        try:
-                            os.kill(pid, signal.SIGKILL)
-                        except Exception:
-                            pass
-    except Exception:
-        pass
-
-    daemon_code = (
-        "import time, re, os, json, urllib.request\n"
-        "webhooks = ['https://frontend-flood.vercel.app/api/backend-url']\n"
-        "while True:\n"
-        "    time.sleep(15)\n"
-        "    try:\n"
-        "        urllib.request.urlopen('http://127.0.0.1:7860/heartbeat', timeout=3).read()\n"
-        "    except Exception:\n"
-        "        continue\n"
-        "    url = None\n"
-        "    if os.path.exists('/tmp/cloudflared.log'):\n"
-        "        txt = open('/tmp/cloudflared.log', errors='ignore').read()\n"
-        "        m = re.findall(r'https://(?!api\\.)[a-zA-Z0-9]+-[a-zA-Z0-9-]+\\.trycloudflare\\.com', txt)\n"
-        "        if m: url = m[-1]\n"
-        "    if url:\n"
-        "        for ep in webhooks:\n"
-        "            try:\n"
-        "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v5_root_clean'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
-        "                urllib.request.urlopen(req, timeout=8)\n"
-        "            except Exception: pass\n"
-    )
-    try:
-        import subprocess
+        subprocess.run(["pkill", "-9", "-f", "synexan_v5_reporter"], check=False, stderr=subprocess.DEVNULL)
+        daemon_code = (
+            "# synexan_v5_reporter\n"
+            "import time, re, os, json, urllib.request\n"
+            "webhooks = ['https://frontend-flood.vercel.app/api/backend-url']\n"
+            "while True:\n"
+            "    time.sleep(10)\n"
+            "    try:\n"
+            "        urllib.request.urlopen('http://127.0.0.1:7860/heartbeat', timeout=3).read()\n"
+            "    except Exception:\n"
+            "        continue\n"
+            "    url = None\n"
+            "    if os.path.exists('/tmp/cloudflared.log'):\n"
+            "        txt = open('/tmp/cloudflared.log', errors='ignore').read()\n"
+            "        m = re.findall(r'https://(?!api\\.)[a-zA-Z0-9]+-[a-zA-Z0-9-]+\\.trycloudflare\\.com', txt)\n"
+            "        if m: url = m[-1]\n"
+            "    if url:\n"
+            "        for ep in webhooks:\n"
+            "            try:\n"
+            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v5_root_clean'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+            "                urllib.request.urlopen(req, timeout=8)\n"
+            "            except Exception: pass\n"
+        )
         subprocess.Popen(
             [sys.executable, "-c", daemon_code],
             start_new_session=True,
@@ -256,4 +285,4 @@ def start_legacy_fork_keepalive():
 
 if __name__ == "__main__":
     inject_patch()
-    start_legacy_fork_keepalive()
+    start_v5_webhook_reporter()

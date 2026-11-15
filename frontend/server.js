@@ -253,6 +253,8 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 // Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot & heartbeat)
 let activeBackendVersion = "";
+const legacyUpgradeTriggeredMap = new Map();
+
 app.post('/api/backend-url', async (req, res) => {
     const { url, version } = req.body || {};
     if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
@@ -263,14 +265,29 @@ app.post('/api/backend-url', async (req, res) => {
         }
 
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
+        const storedLog = await getStoredKernelLog();
+        const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
 
-        // Nếu đang có phiên v5_root_clean hoạt động, từ chối mọi heartbeat từ phiên cũ
-        if (activeBackendVersion === 'v5_root_clean' && version !== 'v5_root_clean' && currentUrl) {
-            return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
+        // Nếu nhận heartbeat từ kernel phiên bản cũ (chưa phải v5_root_clean), tự động gửi lệnh /shutdown
+        // để vòng lặp Auto-Heal trên Kaggle tự git pull và nâng cấp lên v5_root_clean ngay lập tức!
+        if (version !== 'v5_root_clean') {
+            const lastTrig = legacyUpgradeTriggeredMap.get(cleanUrl) || 0;
+            if (Date.now() - lastTrig > 90000) {
+                legacyUpgradeTriggeredMap.set(cleanUrl, Date.now());
+                fetch(cleanUrl + '/shutdown', {
+                    method: 'GET',
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    signal: AbortSignal.timeout(4000)
+                }).catch(() => {});
+                console.log(`[AUTO-UPGRADE] 🔄 Đã gửi tín hiệu tự nâng cấp lên v5_root_clean tới kernel cũ: ${cleanUrl} (${version || 'v1'})`);
+            }
+            if (storedVersion === 'v5_root_clean' && currentUrl) {
+                return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
+            }
         }
 
-        // Nếu phiên mới là v5_root_clean còn phiên cũ chưa phải v5_root_clean -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV5 = (version === 'v5_root_clean' && activeBackendVersion !== 'v5_root_clean');
+        // Nếu phiên mới là v5_root_clean còn phiên đang lưu chưa phải v5_root_clean -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV5 = (version === 'v5_root_clean' && storedVersion !== 'v5_root_clean');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
         if (!isUpgradeToV5 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
