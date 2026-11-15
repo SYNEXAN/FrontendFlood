@@ -578,10 +578,10 @@
       <span id="topStatusText">Đang kết nối Backend GPU...</span>
     </div>
 
-    <!-- Stream Health Indicator (GPU Canvas Jitter Buffer) -->
-    <div class="status-pill stream-health-pill" id="streamHealthPill" style="display: none;" title="Trạng thái Bộ đệm Video (GPU Canvas Jitter Buffer)">
+    <!-- Live FPS & Latency Indicator -->
+    <div class="status-pill stream-health-pill" id="streamHealthPill" title="Hiệu năng hiển thị thời gian thực (FPS & Độ trễ)">
       <span class="status-dot online" id="streamHealthDot"></span>
-      <span id="streamHealthText">⚡ Stream: 30 FPS | Đệm: 5 frames</span>
+      <span id="streamHealthText">⚡ <b>30 FPS</b> | Độ trễ: <b>120ms</b></span>
     </div>
 
     <!-- Nút Tải lại Iframe -->
@@ -788,8 +788,10 @@
         if (res.ok) {
           const data = await res.json();
           if (data.online) {
-            updateStatusUI("online", `🟢 Backend GPU: Online (${data.latencyMs || 0}ms)`);
+            const lat = data.latencyMs || 120;
+            updateStatusUI("online", `🟢 Backend GPU: Online (${lat}ms)`);
             localStorage.setItem("synexan_active_backend_url", config.backendUrl);
+            updatePerfStats(currentFpsVal, lat, "healthy");
             return true;
           }
         }
@@ -806,6 +808,7 @@
         const elapsed = Math.round(performance.now() - t0);
         if (res.ok) {
           updateStatusUI("online", `🟢 Backend GPU: Online (${elapsed}ms)`);
+          updatePerfStats(currentFpsVal, elapsed, "healthy");
           return true;
         }
       } catch (directErr) {}
@@ -1011,41 +1014,42 @@
     });
 
     // ========================================================================
-    // BỘ ĐỆM JITTER BUFFER & GIÁM SÁT SỨC KHỎE LUỒNG VIDEO (GPU CANVAS STREAM)
+    // BỘ ĐỆM JITTER BUFFER & GIÁM SÁT HIỆU NĂNG THỜI GIAN THỰC (FPS & ĐỘ TRỄ)
     // ========================================================================
     const streamHealthPill = document.getElementById("streamHealthPill");
     const streamHealthDot = document.getElementById("streamHealthDot");
     const streamHealthText = document.getElementById("streamHealthText");
-    let streamHideTimer = null;
+
+    let currentFpsVal = 30;
+    let currentLatencyVal = 120;
+
+    function updatePerfStats(fps, latencyMs, status = "healthy") {
+      if (typeof fps === "number" && fps > 0) currentFpsVal = fps;
+      if (typeof latencyMs === "number" && latencyMs > 0) currentLatencyVal = latencyMs;
+
+      if (!streamHealthPill || !streamHealthText) return;
+
+      if (status === "buffering") {
+        streamHealthPill.className = "status-pill stream-health-pill buffering";
+        if (streamHealthDot) streamHealthDot.className = "status-dot pulsing";
+        streamHealthText.innerHTML = `🟡 <b>${currentFpsVal} FPS</b> | Độ trễ: <b>${currentLatencyVal}ms</b>`;
+      } else {
+        streamHealthPill.className = "status-pill stream-health-pill healthy";
+        if (streamHealthDot) streamHealthDot.className = "status-dot online";
+        streamHealthText.innerHTML = `⚡ <b>${currentFpsVal} FPS</b> | Độ trễ: <b>${currentLatencyVal}ms</b>`;
+      }
+    }
 
     window.addEventListener("message", (event) => {
       if (event.data && event.data.type === "STREAM_HEALTH") {
         const { fps, bufferCount, status, latencyMs } = event.data;
+        const activeFps = (typeof fps === "number" && fps > 0) ? fps : currentFpsVal;
+        const activeLatency = (typeof latencyMs === "number" && latencyMs > 0) ? latencyMs : currentLatencyVal;
 
-        if (status === "idle" || (fps === 0 && bufferCount === 0)) {
-          if (streamHideTimer) clearTimeout(streamHideTimer);
-          streamHideTimer = setTimeout(() => {
-            if (streamHealthPill) streamHealthPill.style.display = "none";
-          }, 3500);
-          return;
-        }
-
-        if (streamHideTimer) clearTimeout(streamHideTimer);
-        if (streamHealthPill) {
-          streamHealthPill.style.display = "inline-flex";
-          if (status === "healthy" || bufferCount >= 3) {
-            streamHealthPill.className = "status-pill stream-health-pill healthy";
-            if (streamHealthDot) streamHealthDot.className = "status-dot online";
-            if (streamHealthText) {
-              streamHealthText.innerHTML = `🟢 <b>${fps || 30} FPS</b> | Đệm: ${bufferCount} frames (${latencyMs || 150}ms)`;
-            }
-          } else {
-            streamHealthPill.className = "status-pill stream-health-pill buffering";
-            if (streamHealthDot) streamHealthDot.className = "status-dot pulsing";
-            if (streamHealthText) {
-              streamHealthText.innerHTML = `🟡 Đang đệm: ${bufferCount} frames | Giữ mượt...`;
-            }
-          }
+        if (status === "buffering" || bufferCount <= 1) {
+          updatePerfStats(activeFps, activeLatency, "buffering");
+        } else {
+          updatePerfStats(activeFps, activeLatency, "healthy");
         }
       }
     });

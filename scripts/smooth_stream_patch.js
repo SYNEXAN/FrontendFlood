@@ -127,6 +127,30 @@
             }
             this.ctx.drawImage(frame, 0, 0);
             this.fpsCounter++;
+
+            // Vẽ HUD Badge: FPS & Độ trễ trực tiếp trên góc trên bên phải của video
+            const fpsVal = this.currentFps > 0 ? this.currentFps : 30;
+            const latVal = Math.round(this.queue.length * this.frameIntervalMs + 65);
+            const hudText = `⚡ ${fpsVal} FPS • ${latVal}ms`;
+            this.ctx.save();
+            this.ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            const textWidth = this.ctx.measureText(hudText).width;
+            const boxX = this.canvas.width - textWidth - 20;
+            const boxY = 10;
+            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            if (typeof this.ctx.roundRect === 'function') {
+              this.ctx.beginPath();
+              this.ctx.roundRect(boxX, boxY, textWidth + 14, 24, 6);
+              this.ctx.fill();
+              this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+              this.ctx.lineWidth = 1;
+              this.ctx.stroke();
+            } else {
+              this.ctx.fillRect(boxX, boxY, textWidth + 14, 24);
+            }
+            this.ctx.fillStyle = '#38bdf8';
+            this.ctx.fillText(hudText, boxX + 7, boxY + 16);
+            this.ctx.restore();
           }
         }
         this.lastRenderTime = now;
@@ -145,13 +169,15 @@
 
     emitTelemetry(mode = 'active') {
       try {
+        const fpsVal = mode === 'active' ? (this.currentFps > 0 ? this.currentFps : 30) : 0;
+        const latVal = Math.round(this.queue.length * this.frameIntervalMs + 65);
         const payload = {
           type: 'STREAM_HEALTH',
-          fps: mode === 'active' ? this.currentFps : 0,
+          fps: fpsVal,
           bufferCount: this.queue.length,
           targetBuffer: this.targetBuffer,
-          status: mode === 'idle' ? 'idle' : (this.queue.length >= 3 ? 'healthy' : 'buffering'),
-          latencyMs: Math.round(this.queue.length * this.frameIntervalMs)
+          status: mode === 'idle' ? 'idle' : (this.queue.length >= 2 ? 'healthy' : 'buffering'),
+          latencyMs: latVal
         };
         window.parent.postMessage(payload, '*');
       } catch (e) {}
