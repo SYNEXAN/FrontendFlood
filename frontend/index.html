@@ -1103,6 +1103,18 @@
               DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
               localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
             }
+            if (cfg && cfg.kernelLog) {
+              const kLog = cfg.kernelLog;
+              if (kLog.message && overlaySubText) {
+                overlaySubText.textContent = kLog.message;
+              }
+              if (kLog.status === "error") {
+                showToast(kLog.message, "error");
+                updateStatusUI("offline", "❌ Lỗi: " + (kLog.message.substring(0, 30)));
+              } else if (kLog.status === "running") {
+                updateStatusUI("connecting", "⏳ Đang nạp AI...");
+              }
+            }
           }
         } catch (e) {}
 
