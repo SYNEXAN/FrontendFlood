@@ -169,14 +169,14 @@
 
     emitTelemetry(mode = 'active') {
       try {
-        const fpsVal = mode === 'active' ? (this.currentFps > 0 ? this.currentFps : 30) : 0;
+        const fpsVal = (mode === 'active' && this.currentFps > 0) ? this.currentFps : 0;
         const latVal = Math.round(this.queue.length * this.frameIntervalMs + 65);
         const payload = {
           type: 'STREAM_HEALTH',
           fps: fpsVal,
           bufferCount: this.queue.length,
           targetBuffer: this.targetBuffer,
-          status: mode === 'idle' ? 'idle' : (this.queue.length >= 2 ? 'healthy' : 'buffering'),
+          status: (mode === 'idle' || fpsVal === 0) ? 'idle' : (this.queue.length >= 2 ? 'healthy' : 'buffering'),
           latencyMs: latVal
         };
         window.parent.postMessage(payload, '*');
