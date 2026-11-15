@@ -95,62 +95,49 @@ def resolve_username_from_token(token, fallback_index=None):
 
 
 def load_accounts():
-    """Tải danh sách tài khoản từ KAGGLE_ACCOUNTS_JSON (hỗ trợ file json, token KGAT, hoặc key đơn lẻ)."""
+    """Tải toàn bộ danh sách mã API (KGAT_...) hoặc key từ KAGGLE_ACCOUNTS_JSON ở mọi định dạng."""
     raw_json = os.environ.get("KAGGLE_ACCOUNTS_JSON", "").strip()
-    accounts = []
+    extra_key = os.environ.get("KAGGLE_KEY", "").strip()
+    extra_user = os.environ.get("KAGGLE_USERNAME", "").strip()
 
+    candidates = []
+    seen_tokens = set()
+
+    # 1. Trích xuất trực tiếp toàn bộ mã KGAT_... xuất hiện trong KAGGLE_ACCOUNTS_JSON và KAGGLE_KEY
+    for src_text in (raw_json, extra_key):
+        if src_text:
+            for tok in re.findall(r"KGAT_[a-zA-Z0-9_\-]+", src_text):
+                if tok not in seen_tokens:
+                    seen_tokens.add(tok)
+                    candidates.append({"username": "", "key": tok, "token": tok})
+
+    # 2. Hỗ trợ thêm các cặp {username, key} truyền thống (nếu không phải KGAT_...)
     if raw_json:
-        # 1. Thử parse JSON chuẩn
         try:
             parsed = json.loads(raw_json)
-            if isinstance(parsed, list):
-                accounts = parsed
-            elif isinstance(parsed, dict):
-                accounts = [parsed]
-            elif isinstance(parsed, str):
-                accounts = [{"token": parsed}]
+            items = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+            for it in items:
+                if isinstance(it, dict):
+                    u = str(it.get("username") or "").strip()
+                    k = str(it.get("key") or it.get("token") or "").strip()
+                    if k and k not in seen_tokens:
+                        seen_tokens.add(k)
+                        candidates.append({"username": u, "key": k, "token": k if k.startswith("KGAT_") else ""})
         except Exception:
             pass
 
-        # 2. Thử parse bằng ast.literal_eval
-        if not accounts:
-            try:
-                parsed = ast.literal_eval(raw_json)
-                if isinstance(parsed, list):
-                    accounts = parsed
-                elif isinstance(parsed, dict):
-                    accounts = [parsed]
-            except Exception:
-                pass
+    if extra_user and extra_key and extra_key not in seen_tokens:
+        seen_tokens.add(extra_key)
+        candidates.append({
+            "username": extra_user,
+            "key": extra_key,
+            "token": extra_key if extra_key.startswith("KGAT_") else ""
+        })
 
-        # 3. Thử trích xuất Token KGAT_... đơn lẻ hoặc danh sách
-        if not accounts:
-            kgat_tokens = re.findall(r'KGAT_[a-zA-Z0-9_\-]+', raw_json)
-            if kgat_tokens:
-                accounts = [{"token": tok} for tok in kgat_tokens]
+    print(f"🔎 Phát hiện tổng cộng {len(candidates)} mã API Kaggle trong cấu hình Secret.")
 
-        # 4. Thử trích xuất {username: xxx, key: yyy} bằng Regex
-        if not accounts:
-            matches = re.findall(
-                r'username["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?.*?key["\']?\s*:\s*["\']?([^,"\';\s}]+)["\']?',
-                raw_json,
-                re.DOTALL
-            )
-            if matches:
-                accounts = [{"username": u.strip(), "key": k.strip()} for u, k in matches]
-
-    if not accounts:
-        user = os.environ.get("KAGGLE_USERNAME", "").strip()
-        key = os.environ.get("KAGGLE_KEY", "").strip()
-        if user and key:
-            accounts = [{"username": user, "key": key}]
-
-    # Xử lý tự động phát hiện Username nếu người dùng chỉ cung cấp Key / Token
     resolved = []
-    for idx, item in enumerate(accounts):
-        if isinstance(item, str):
-            item = {"token": item} if item.startswith("KGAT_") else {"key": item}
-
+    for idx, item in enumerate(candidates):
         u = item.get("username", "").strip()
         k = item.get("key", "").strip()
         tok = item.get("token", "").strip() or (k if k.startswith("KGAT_") else "")
@@ -160,6 +147,8 @@ def load_accounts():
             if discovered_user:
                 print(f"✅ Đã xác thực thành công mã API Token #{idx + 1}")
                 u = discovered_user
+            else:
+                print(f"⚠️ Mã API Token #{idx + 1} không hợp lệ hoặc đã hết hạn.")
 
         if u and (k or tok):
             resolved.append({"username": u, "key": k or tok, "token": tok})
@@ -278,7 +267,7 @@ def find_active_backend(username):
     """
     try:
         proc = subprocess.run(
-            [*KAGGLE_CMD, "kernels", "list", "--mine", "-s", "synexan", "-v"],
+            [*KAGGLE_CMD, "kernels", "list", "--mine", "--page-size", "50", "-v"],
             capture_output=True,
             text=True,
             timeout=20
@@ -340,7 +329,7 @@ def cleanup_stale_kernels(username, current_slug=None, force_kill_running=False)
     print(f"🧹 [Auto-Cleanup] Quét và dọn dẹp các notebook synexan cũ (force_kill={force_kill_running or FORCE_PUSH})...")
     try:
         proc = subprocess.run(
-            [*KAGGLE_CMD, "kernels", "list", "--mine", "-s", "synexan", "-v"],
+            [*KAGGLE_CMD, "kernels", "list", "--mine", "--page-size", "50", "-v"],
             capture_output=True,
             text=True,
             timeout=20
