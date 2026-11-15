@@ -688,6 +688,16 @@
         </div>
       </div>
 
+      <!-- HÀNG NÚT ĐIỀU KHIỂN & KÍCH HOẠT (TINH GỌN, HIỆN ĐẠI, ZERO ICON) -->
+      <div id="overlayActionRow" style="display: none; margin-top: 14px; gap: 8px; justify-content: center; flex-wrap: wrap;">
+        <button id="btnConnectApiOverlay" class="btn-kaggle-quick" style="cursor: pointer; background: linear-gradient(135deg, #0284c7, #2563eb); border: none; font-weight: 600;">
+          <span id="btnConnectApiOverlayText">Kích hoạt GPU Tự động</span>
+        </button>
+        <button id="btnEnterAppDirectly" class="btn-kaggle-sub" style="cursor: pointer; border: 1px solid #334155;">
+          Mở Giao Diện
+        </button>
+      </div>
+
       <!-- HÀNG NÚT TÁC VỤ NHANH KAGGLE (CHẠY THỦ CÔNG GIỜ CAO ĐIỂM) -->
       <div id="kagglePublicCard" class="compact-kaggle-bar">
         <span class="compact-kaggle-label">Chạy thủ công (0s chờ):</span>
@@ -944,6 +954,8 @@
       showOverlay();
       stepsContainer.style.display = "none";
       cmdBadgeWrapper.style.display = "none";
+      const overlayActionRow = document.getElementById("overlayActionRow");
+      if (overlayActionRow) overlayActionRow.style.display = "none";
       overlaySubText.textContent = "Đang gửi yêu cầu kích hoạt GPU đến GitHub Actions (Zero-Leak)...";
 
       updateStep(1, "running", "1. Đang kích hoạt GitHub Actions...");
@@ -1259,16 +1271,16 @@
     }
 
     // ========================================================================
-    // TỰ ĐỘNG ĐÁNH THỨC / CHỜ KẾT NỐI THEO YÊU CẦU (AUTO PASSIVE LISTENER)
+    // TỰ ĐỘNG ĐÁNH THỨC / CHỜ KẾT NỐI THEO YÊU CẦU (PASSIVE LISTENER AN TOÀN)
     // ========================================================================
     async function initAutoLifecycle() {
-      // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước (tối ưu F5 không gián đoạn)
+      // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước
       const cached = localStorage.getItem("synexan_active_backend_url");
       if (cached && cached.startsWith("http")) {
         DEFAULT_CONFIG.backendUrl = cached;
       }
 
-      // 2. Đồng bộ URL Backend mới nhất từ Server Render
+      // 2. Đồng bộ URL Backend mới nhất từ Server Vercel / GitHub
       try {
         const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {
@@ -1280,23 +1292,74 @@
         }
       } catch (e) {}
 
-      // 3. Kiểm tra tính sẵn sàng thực sự của GPU Backend
+      // 3. Kiểm tra xem Backend có đang Online sẵn hay không
       const isOnline = await checkBackendOnline();
-      if (!isOnline) {
-        showOverlay();
-        updateStatusUI("connecting", "Đang kết nối GPU...");
-        if (overlaySubText) {
-          overlaySubText.textContent = "Đang gửi tín hiệu khởi động Backend GPU Tesla T4...";
-        }
-        console.log("[LIFECYCLE] ⏳ Backend đang Offline. Tự động kích hoạt GPU và giám sát tiến trình...");
-
-        // Tự động kích hoạt GitHub Actions / wake-gpu
-        triggerZeroLeakWake();
-      } else {
+      if (isOnline) {
         const currentConfig = getConfig();
         onBackendConnected(currentConfig.backendUrl, 120);
         console.log("[LIFECYCLE] ✅ Backend GPU đang Online. Sử dụng phiên hiện tại (không ngắt, không nạp lại).");
+        return;
       }
+
+      // 4. Nếu chưa Online ngay: BẬT CHẾ ĐỘ LẮNG NGHE THỤ ĐỘNG (15 GIÂY)
+      // TUYỆT ĐỐI KHÔNG TỰ TIỆN GỌI wake-gpu ĐỂ TRÁNH HẠ GỤC NOTEBOOK ĐANG CHẠY!
+      console.log("[LIFECYCLE] ⏳ Đang ở chế độ lắng nghe thụ động (Passive Listening 15s)...");
+      showOverlay();
+      updateStatusUI("connecting", "Đang dò tìm GPU Backend...");
+      if (overlaySubText) {
+        overlaySubText.textContent = "Đang kiểm tra kết nối với máy chủ GPU (lắng nghe tín hiệu)...";
+      }
+      const stepTextElem = document.getElementById("overlayActiveStepText");
+      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu Heartbeat từ GPU...";
+      const progressFill = document.getElementById("overlayProgressBarFill");
+      if (progressFill) progressFill.style.width = "40%";
+
+      const overlayActionRow = document.getElementById("overlayActionRow");
+      if (overlayActionRow) overlayActionRow.style.display = "none";
+
+      let checkCount = 0;
+      const maxChecks = 10; // 10 lần * 1.5s = 15 giây
+      const passiveInterval = setInterval(async () => {
+        checkCount++;
+        const pct = Math.min(90, 40 + checkCount * 5);
+        if (progressFill) progressFill.style.width = `${pct}%`;
+
+        // Quét URL mới từ server Vercel
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
+            }
+          }
+        } catch (e) {}
+
+        const onlineNow = await checkBackendOnline();
+        if (onlineNow) {
+          clearInterval(passiveInterval);
+          const currentConfig = getConfig();
+          onBackendConnected(currentConfig.backendUrl, 100);
+          console.log("[LIFECYCLE] 🎯 GPU Backend đã kết nối thành công trong thời gian chờ thụ động!");
+          return;
+        }
+
+        if (checkCount >= maxChecks) {
+          clearInterval(passiveInterval);
+          console.log("[LIFECYCLE] ℹ️ Hết 15s chờ thụ động. Chuyển sang chế độ người dùng chủ động lựa chọn.");
+          updateStatusUI("offline", "Chưa kết nối GPU");
+          if (overlaySubText) {
+            overlaySubText.textContent = "Chưa phát hiện GPU Backend đang chạy. Bạn có thể bấm 'Kích hoạt GPU Tự động' hoặc mở Kaggle.";
+          }
+          if (stepTextElem) stepTextElem.textContent = "Sẵn sàng nhận lệnh kích hoạt...";
+          if (progressFill) progressFill.style.width = "100%";
+          if (overlayActionRow) overlayActionRow.style.display = "flex";
+
+          // Tiếp tục lắng nghe ngầm định kỳ mỗi 5s (nếu người dùng bấm Run notebook trên Kaggle, web sẽ tự nhận)
+          startWaitingForBackendSignal();
+        }
+      }, 1500);
     }
     initAutoLifecycle();
 

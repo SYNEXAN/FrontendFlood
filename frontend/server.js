@@ -10,9 +10,111 @@ let activeBackendUrl = DEFAULT_BACKEND_URL;
 let localKernelLog = null;
 
 // ============================================================================
-// UPSTASH REDIS REST API CLIENT (Serverless Persistent Key-Value Storage)
+// GITHUB & PERSISTENT STORAGE HELPERS
+// ============================================================================
+function getGitHubCredentials() {
+    let ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
+    let ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
+    if (!ghToken) {
+        const envPaths = [path.join(__dirname, '..', '.env'), path.join(__dirname, '.env')];
+        for (const ep of envPaths) {
+            if (fs.existsSync(ep)) {
+                try {
+                    const envContent = fs.readFileSync(ep, 'utf8');
+                    const matchPat = envContent.match(/GH_PAT\s*=\s*([^\r\n]+)/);
+                    if (matchPat) ghToken = matchPat[1].trim();
+                    const matchRepo = envContent.match(/GITHUB_REPOSITORY\s*=\s*([^\r\n]+)/);
+                    if (matchRepo) ghRepo = matchRepo[1].trim();
+                    if (ghToken) break;
+                } catch (e) {}
+            }
+        }
+    }
+    return { ghToken, ghRepo };
+}
+
+const LOCAL_BACKEND_JSON_PATHS = [
+    path.join(__dirname, '..', 'backend-url.json'),
+    path.join(__dirname, 'backend-url.json')
+];
+
+// Nạp URL từ backend-url.json cục bộ khi khởi động (nếu có)
+for (const p of LOCAL_BACKEND_JSON_PATHS) {
+    if (fs.existsSync(p)) {
+        try {
+            const raw = fs.readFileSync(p, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.activeBackendUrl && parsed.activeBackendUrl.startsWith('http')) {
+                activeBackendUrl = parsed.activeBackendUrl;
+                console.log(`[INFO] 📄 Nạp activeBackendUrl từ file ${p}: ${activeBackendUrl}`);
+                break;
+            }
+        } catch (e) {}
+    }
+}
+
+async function persistBackendUrlToGitHub(url) {
+    const { ghToken, ghRepo } = getGitHubCredentials();
+    if (!ghToken) return;
+
+    try {
+        const fileUrl = `https://api.github.com/repos/${ghRepo}/contents/backend-url.json`;
+        const headers = {
+            'Authorization': `Bearer ${ghToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'FrontendFlood-Persistence'
+        };
+
+        let sha = null;
+        try {
+            const getRes = await fetch(fileUrl, { headers, signal: AbortSignal.timeout(3500) });
+            if (getRes.ok) {
+                const fileData = await getRes.json();
+                sha = fileData.sha;
+            }
+        } catch (e) {}
+
+        const contentObj = {
+            activeBackendUrl: url,
+            updatedAt: new Date().toISOString(),
+            source: 'heartbeat_auto_sync'
+        };
+        const encodedContent = Buffer.from(JSON.stringify(contentObj, null, 2)).toString('base64');
+
+        const putBody = {
+            message: `chore: sync live backend url ${url} [skip ci]`,
+            content: encodedContent
+        };
+        if (sha) putBody.sha = sha;
+
+        const putRes = await fetch(fileUrl, {
+            method: 'PUT',
+            headers: {
+                ...headers,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(putBody),
+            signal: AbortSignal.timeout(6000)
+        });
+
+        if (putRes.ok) {
+            console.log(`[INFO] 🚀 Đã lưu persistent backend-url.json lên GitHub thành công!`);
+        } else {
+            console.warn(`[WARN] GitHub Contents API trả về HTTP ${putRes.status}`);
+        }
+    } catch (err) {
+        console.error('[WARN] Failed to persist backend URL to GitHub:', err.message);
+    }
+}
+
+// ============================================================================
+// UPSTASH REDIS REST API & GITHUB PERSISTENT CLIENT
 // ============================================================================
 async function getStoredBackendUrl() {
+    if (activeBackendUrl && activeBackendUrl.startsWith('http')) {
+        return activeBackendUrl;
+    }
+
     const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
@@ -25,18 +127,48 @@ async function getStoredBackendUrl() {
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.result) {
-                    return data.result;
+                    activeBackendUrl = data.result;
+                    return activeBackendUrl;
                 }
             }
         } catch (err) {
             console.error('[WARN] Failed to read activeBackendUrl from Upstash Redis:', err.message);
         }
     }
+
+    // Đọc từ raw GitHub nếu Vercel vừa cold-start
+    const { ghRepo } = getGitHubCredentials();
+    if (ghRepo) {
+        try {
+            const rawRes = await fetch(`https://raw.githubusercontent.com/${ghRepo}/main/backend-url.json?t=${Date.now()}`, {
+                signal: AbortSignal.timeout(3500),
+                cache: 'no-store'
+            });
+            if (rawRes.ok) {
+                const rawData = await rawRes.json();
+                if (rawData && rawData.activeBackendUrl && rawData.activeBackendUrl.startsWith('http')) {
+                    activeBackendUrl = rawData.activeBackendUrl;
+                    console.log(`[INFO] 🌐 Nạp activeBackendUrl từ GitHub Raw: ${activeBackendUrl}`);
+                    return activeBackendUrl;
+                }
+            }
+        } catch (err) {}
+    }
+
     return activeBackendUrl || DEFAULT_BACKEND_URL;
 }
 
 async function setStoredBackendUrl(url) {
     activeBackendUrl = url;
+
+    // 1. Lưu cục bộ nếu hệ thống file cho phép ghi
+    for (const p of LOCAL_BACKEND_JSON_PATHS) {
+        try {
+            fs.writeFileSync(p, JSON.stringify({ activeBackendUrl: url, updatedAt: new Date().toISOString() }, null, 2));
+        } catch (e) {}
+    }
+
+    // 2. Lưu vào Upstash Redis nếu có
     const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
     const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (redisUrl && redisToken) {
@@ -55,6 +187,9 @@ async function setStoredBackendUrl(url) {
             console.error('[WARN] Failed to write activeBackendUrl to Upstash Redis:', err.message);
         }
     }
+
+    // 3. Bất đồng bộ đồng bộ lên GitHub backend-url.json (Zero Data Loss)
+    persistBackendUrlToGitHub(url).catch(() => {});
 }
 
 async function getStoredKernelLog() {
@@ -240,23 +375,7 @@ app.post('/api/wake-gpu', async (req, res) => {
         }
         lastWakeTime = now;
 
-        let ghToken = process.env.GH_PAT || process.env.GITHUB_TOKEN;
-        let ghRepo = process.env.GITHUB_REPOSITORY || 'SYNEXAN/FrontendFlood';
-
-        // Tự động nạp từ file .env cục bộ nếu chạy dưới máy dev
-        if (!ghToken) {
-            const envPaths = [path.join(__dirname, '..', '.env'), path.join(__dirname, '.env')];
-            for (const ep of envPaths) {
-                if (fs.existsSync(ep)) {
-                    const envContent = fs.readFileSync(ep, 'utf8');
-                    const matchPat = envContent.match(/GH_PAT\s*=\s*([^\r\n]+)/);
-                    if (matchPat) ghToken = matchPat[1].trim();
-                    const matchRepo = envContent.match(/GITHUB_REPOSITORY\s*=\s*([^\r\n]+)/);
-                    if (matchRepo) ghRepo = matchRepo[1].trim();
-                    if (ghToken) break;
-                }
-            }
-        }
+        const { ghToken, ghRepo } = getGitHubCredentials();
 
         if (!ghToken) {
             return res.status(503).json({
