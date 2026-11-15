@@ -268,16 +268,16 @@ app.post('/api/backend-url', async (req, res) => {
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
 
-        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v6_intact_props: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v5)
-        if (version !== 'v6_intact_props') {
+        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v7_cam_presets: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v6)
+        if (version !== 'v7_cam_presets') {
             return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
         }
 
-        // Nếu phiên mới là v6_intact_props còn phiên đang lưu chưa phải v6_intact_props -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV6 = (version === 'v6_intact_props' && storedVersion !== 'v6_intact_props');
+        // Nếu phiên mới là v7_cam_presets còn phiên đang lưu chưa phải v7_cam_presets -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV7 = (version === 'v7_cam_presets' && storedVersion !== 'v7_cam_presets');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV6 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        if (!isUpgradeToV7 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -285,8 +285,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        if (version === 'v6_intact_props') {
-            activeBackendVersion = 'v6_intact_props';
+        if (version === 'v7_cam_presets') {
+            activeBackendVersion = 'v7_cam_presets';
         }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
@@ -330,6 +330,119 @@ app.get('/api/config', async (req, res) => {
         wakeGpuConfigured: true,
         kernelLog: kernelLog
     });
+});
+
+// ============================================================================
+// CAMERA PRESETS PERSISTENCE API (LƯU CỐ ĐỊNH MỐC & LÀN ĐƯỜNG CHO TỪNG CAMERA)
+// ============================================================================
+let localCameraPresets = {};
+const TMP_CAMERA_PRESETS_FILE = path.join(os.tmpdir(), 'synexan_camera_presets.json');
+const REPO_CAMERA_PRESETS_FILE = path.join(__dirname, '..', 'scripts', 'camera_presets.json');
+
+async function getStoredCameraPresets() {
+    let merged = {};
+    try {
+        if (fs.existsSync(REPO_CAMERA_PRESETS_FILE)) {
+            const repoData = JSON.parse(fs.readFileSync(REPO_CAMERA_PRESETS_FILE, 'utf8'));
+            if (repoData && typeof repoData === 'object') {
+                merged = { ...merged, ...repoData };
+            }
+        }
+    } catch (e) {}
+
+    try {
+        if (fs.existsSync(TMP_CAMERA_PRESETS_FILE)) {
+            const tmpData = JSON.parse(fs.readFileSync(TMP_CAMERA_PRESETS_FILE, 'utf8'));
+            if (tmpData && typeof tmpData === 'object') {
+                merged = { ...merged, ...tmpData };
+            }
+        }
+    } catch (e) {}
+
+    if (localCameraPresets && typeof localCameraPresets === 'object') {
+        merged = { ...merged, ...localCameraPresets };
+    }
+
+    const { redisUrl, redisToken } = getUpstashConfig();
+    if (redisUrl && redisToken) {
+        try {
+            const response = await fetch(`${redisUrl}/get/cameraPresets`, {
+                headers: { Authorization: `Bearer ${redisToken}` },
+                cache: 'no-store',
+                signal: AbortSignal.timeout(3500)
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.result) {
+                    const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+                    if (parsed && typeof parsed === 'object') {
+                        merged = { ...merged, ...parsed };
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[WARN] Failed to read cameraPresets from Upstash Redis:', err.message);
+        }
+    }
+    localCameraPresets = merged;
+    return merged;
+}
+
+async function setStoredCameraPresets(presetsObj) {
+    localCameraPresets = presetsObj || {};
+    try {
+        fs.writeFileSync(TMP_CAMERA_PRESETS_FILE, JSON.stringify(localCameraPresets, null, 2), 'utf8');
+    } catch (e) {}
+
+    const { redisUrl, redisToken } = getUpstashConfig();
+    if (redisUrl && redisToken) {
+        try {
+            await fetch(redisUrl, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${redisToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(['SET', 'cameraPresets', JSON.stringify(localCameraPresets)]),
+                signal: AbortSignal.timeout(3500)
+            });
+            console.log('[INFO] 💾 Saved cameraPresets to Upstash Redis');
+        } catch (err) {
+            console.error('[WARN] Failed to write cameraPresets to Upstash Redis:', err.message);
+        }
+    }
+}
+
+app.get('/api/camera-presets', async (req, res) => {
+    const presets = await getStoredCameraPresets();
+    return res.json({ success: true, presets });
+});
+
+app.post('/api/camera-presets', async (req, res) => {
+    const body = req.body || {};
+    const currentPresets = await getStoredCameraPresets();
+    if (body.cameraKey && typeof body.cameraKey === 'string') {
+        const key = body.cameraKey.trim();
+        const existingEntry = currentPresets[key] || {};
+        currentPresets[key] = {
+            ...existingEntry,
+            cameraKey: key,
+            cameraUrl: body.cameraUrl || existingEntry.cameraUrl || key,
+            cameraName: body.cameraName || existingEntry.cameraName || '',
+            gauges: Array.isArray(body.gauges) ? body.gauges : (existingEntry.gauges || []),
+            roi_points_norm: body.roi_points_norm !== undefined ? body.roi_points_norm : (existingEntry.roi_points_norm || null),
+            roi_label: body.roi_label || existingEntry.roi_label || 'Làn đường giám sát',
+            updatedAt: new Date().toISOString()
+        };
+        await setStoredCameraPresets(currentPresets);
+        return res.json({ success: true, cameraKey: key, entry: currentPresets[key], presets: currentPresets });
+    }
+    if (body.presets && typeof body.presets === 'object') {
+        const updated = { ...currentPresets, ...body.presets };
+        await setStoredCameraPresets(updated);
+        return res.json({ success: true, presets: updated });
+    }
+    return res.status(400).json({ error: 'Missing cameraKey or presets object' });
 });
 
 // Server-side Heartbeat Status Check

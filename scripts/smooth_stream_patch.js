@@ -25,7 +25,8 @@
     EMOJI_REGEX.lastIndex = 0;
     return str
       .replace(EMOJI_REGEX, '')
-      .replace(/(#+\s*)\s+/g, '$1')
+      .replace(/^(#+)\s*/, '$1 ')
+      .replace(/(\n#+)\s*/g, '$1 ')
       .replace(/>\s+/g, '>')
       .replace(/^\s+/, '');
   }
@@ -185,9 +186,18 @@
         el.childNodes.forEach((node) => {
           if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
             EMOJI_REGEX.lastIndex = 0;
-            if (EMOJI_REGEX.test(node.nodeValue)) {
+            if (EMOJI_REGEX.test(node.nodeValue) || /^#{2,6}\s*/.test(node.nodeValue.trim())) {
               EMOJI_REGEX.lastIndex = 0;
-              node.nodeValue = node.nodeValue.replace(EMOJI_REGEX, '').replace(/^\s+/, '');
+              const hadHashes = /^#{2,6}\s*/.test(node.nodeValue.trim());
+              node.nodeValue = node.nodeValue
+                .replace(EMOJI_REGEX, '')
+                .replace(/^\s*#{2,6}\s*/, '')
+                .replace(/^\s+/, '');
+              if (hadHashes && el.tagName === 'P') {
+                el.style.fontWeight = '700';
+                el.style.fontSize = '16px';
+                el.style.margin = '4px 0 8px 0';
+              }
             }
           }
         });

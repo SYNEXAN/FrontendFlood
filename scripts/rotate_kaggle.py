@@ -618,8 +618,10 @@ def main():
         sys.exit(1)
 
     if FORCE_PUSH and len(accounts) > 1:
-        # Đảo thứ tự ưu tiên các tài khoản dự phòng cuối danh sách (100% rảnh slot GPU) lên đầu để nhận GPU tức thì!
-        accounts = list(reversed(accounts))
+        # Đảo thứ tự và xoay vòng theo phút để luôn chọn ngay tài khoản dự phòng mới hoàn toàn rảnh slot GPU!
+        rev = list(reversed(accounts))
+        offset = int(time.time() // 45) % len(rev)
+        accounts = rev[offset:] + rev[:offset]
 
     print(f"📋 Tìm thấy {len(accounts)} tài khoản trong danh sách dự phòng.")
     print(f"🎯 Ngưỡng an toàn tối thiểu: {MIN_GPU_HOURS_THRESHOLD}h GPU/tuần.")
