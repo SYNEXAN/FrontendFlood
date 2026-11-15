@@ -600,30 +600,16 @@
       
       <div class="status-text">AI Urban Flood & Traffic Monitor</div>
       <div class="sub-text" id="overlaySubText">
-        Đang chuẩn bị phiên làm việc GPU Tesla T4...
+        Đang chờ kết nối từ Backend GPU...
       </div>
 
-      <!-- Các Bước Thực Thi Khi Chạy GPU -->
-      <div class="steps-container" id="stepsContainer" style="display: block;">
-        <div class="step-item" id="step-1">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">1. Khởi tạo phiên làm việc GPU Kaggle...</div>
-        </div>
-        <div class="step-item" id="step-2">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">2. Cấp phát tài nguyên GPU Tesla T4...</div>
-        </div>
-        <div class="step-item" id="step-3">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">3. Nạp trọng số mô hình AI & tối ưu hóa...</div>
-        </div>
-        <div class="step-item" id="step-4">
-          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
-          <div class="step-desc">4. Thiết lập đường hầm Cloudflare & giao diện...</div>
+      <!-- Trạng thái chờ Backend tinh tế & Tự động mở khi kết nối -->
+      <div class="waiting-box" id="waitingBox" style="margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div class="mini-spinner" style="width: 32px; height: 32px; border-width: 3px; border-top-color: #38bdf8;"></div>
+        <div style="font-size: 13px; color: #94a3b8; max-width: 380px; line-height: 1.6; text-align: center;">
+          Hệ thống sẽ <b>tự động mở giao diện AI</b> ngay khi bạn khởi động notebook trên Kaggle hoặc Google Colab.
         </div>
       </div>
-
-      <div class="cmd-badge-wrapper" id="cmdBadgeWrapper" style="display: none;"></div>
     </div>
   </div>
 
@@ -1071,7 +1057,76 @@
     startHeartbeat();
 
     // ========================================================================
-    // TỰ ĐỘNG ĐÁNH THỨC THEO YÊU CẦU KHI VÀO TRANG WEB (AUTO ON-DEMAND WAKEUP)
+    // TỰ ĐỘNG MỞ GIAO DIỆN KHI KẾT NỐI ĐƯỢC BACKEND
+    // ========================================================================
+    function onBackendConnected(url, latencyMs) {
+      if (!url || !url.startsWith("http")) return;
+      isServerOnline = true;
+      const lat = latencyMs || 120;
+      updateStatusUI("online", `🟢 Backend GPU: Online (${lat}ms)`);
+      updatePerfStats(currentFpsVal, lat, "healthy");
+
+      if (overlaySubText) {
+        overlaySubText.textContent = "🎉 Đã kết nối Backend GPU! Đang mở giao diện AI...";
+      }
+      showToast("🎉 Đã kết nối Backend GPU! Đang mở giao diện...", "success");
+
+      if (frame.src !== url) {
+        frame.src = url;
+      }
+
+      // Tự động mở giao diện AI ngay tức thì
+      setTimeout(() => {
+        hideOverlay();
+      }, 350);
+    }
+
+    // ========================================================================
+    // CHẾ ĐỘ CHỜ THỤ ĐỘNG: LẮNG NGHE TÍN HIỆU TỪ NOTEBOOK KAGGLE / COLAB
+    // ========================================================================
+    function startWaitingForBackendSignal() {
+      if (monitorTimer) clearInterval(monitorTimer);
+
+      monitorTimer = setInterval(async () => {
+        if (isServerOnline) {
+          clearInterval(monitorTimer);
+          monitorTimer = null;
+          return;
+        }
+
+        // 1. Quét URL mới nhất từ Serverless Upstash Redis (do notebook bắn về)
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
+            }
+          }
+        } catch (e) {}
+
+        // 2. Thử kiểm tra trạng thái online
+        const currentConfig = getConfig();
+        if (currentConfig.backendUrl && currentConfig.backendUrl.startsWith("http")) {
+          try {
+            const pingRes = await fetch(`/api/status?target=${encodeURIComponent(currentConfig.backendUrl)}`, { cache: "no-store" });
+            if (pingRes.ok) {
+              const pingData = await pingRes.json();
+              if (pingData.online) {
+                clearInterval(monitorTimer);
+                monitorTimer = null;
+                onBackendConnected(currentConfig.backendUrl, pingData.latencyMs);
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+      }, 3000); // Quét mỗi 3 giây
+    }
+
+    // ========================================================================
+    // TỰ ĐỘNG ĐÁNH THỨC / CHỜ KẾT NỐI THEO YÊU CẦU (AUTO PASSIVE LISTENER)
     // ========================================================================
     async function initAutoLifecycle() {
       // 1. Tận dụng URL đã lưu trong localStorage từ phiên làm việc trước (tối ưu F5 không gián đoạn)
@@ -1096,14 +1151,20 @@
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
-        console.log("[LIFECYCLE] ⚡ Backend đang Offline. Tự động kích hoạt GPU Tesla T4...");
-        triggerZeroLeakWake();
+        updateStatusUI("connecting", "⏳ Chờ Backend GPU...");
+        if (overlaySubText) {
+          overlaySubText.textContent = "Đang chờ kết nối từ Backend GPU...";
+        }
+        console.log("[LIFECYCLE] ⏳ Backend đang Offline. Bắt đầu lắng nghe tín hiệu từ Notebook...");
+
+        // Bỏ luồng tự động gọi GitHub Actions / wake-gpu để tránh tạo notebook trùng lặp
+        // triggerZeroLeakWake();
+
+        // Bắt đầu chờ thụ động: Tự động mở giao diện ngay khi nhận tín hiệu từ Kaggle / Colab
+        startWaitingForBackendSignal();
       } else {
         const currentConfig = getConfig();
-        if (frame && currentConfig.backendUrl && frame.src !== currentConfig.backendUrl) {
-          frame.src = currentConfig.backendUrl;
-        }
-        hideOverlay();
+        onBackendConnected(currentConfig.backendUrl, 120);
         console.log("[LIFECYCLE] ✅ Backend GPU đang Online. Sử dụng phiên hiện tại (không ngắt, không nạp lại).");
       }
     }
