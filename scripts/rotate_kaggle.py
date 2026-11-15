@@ -134,7 +134,26 @@ def load_accounts():
             "token": extra_key if extra_key.startswith("KGAT_") else ""
         })
 
-    print(f"🔎 Phát hiện tổng cộng {len(candidates)} mã API Kaggle trong cấu hình Secret.")
+    # 3. Tự động quét thêm các tài khoản MCP Kaggle tại ~/.kaggle_accounts/*/kaggle.json (nếu có)
+    mcp_accounts_dir = Path.home() / ".kaggle_accounts"
+    if mcp_accounts_dir.exists() and mcp_accounts_dir.is_dir():
+        for acc_file in sorted(mcp_accounts_dir.glob("*/kaggle.json")):
+            try:
+                with open(acc_file, "r", encoding="utf-8") as mf:
+                    md = json.load(mf)
+                u = str(md.get("username") or "").strip()
+                k = str(md.get("key") or md.get("token") or "").strip()
+                if k and k not in seen_tokens:
+                    seen_tokens.add(k)
+                    candidates.append({
+                        "username": u,
+                        "key": k,
+                        "token": k if k.startswith("KGAT_") else ""
+                    })
+            except Exception:
+                pass
+
+    print(f"🔎 Phát hiện tổng cộng {len(candidates)} mã API Kaggle trong danh sách xoay vòng.")
 
     resolved = []
     for idx, item in enumerate(candidates):
@@ -166,9 +185,16 @@ def setup_kaggle_credentials(username, key, token=None):
     if token:
         data["token"] = token
         os.environ["KAGGLE_API_TOKEN"] = token
+    else:
+        os.environ.pop("KAGGLE_API_TOKEN", None)
+
     if key:
         data["key"] = key
         os.environ["KAGGLE_KEY"] = key
+    else:
+        os.environ.pop("KAGGLE_KEY", None)
+
+    os.environ["KAGGLE_USERNAME"] = username
 
     with open(kaggle_file, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -337,6 +363,7 @@ def cleanup_stale_kernels(username, current_slug=None, force_kill_running=False)
         lines = proc.stdout.strip().splitlines()
         if len(lines) > 1:
             reader = csv.DictReader(lines)
+            checked_synexan = 0
             for row in reader:
                 kernel_ref = row.get("ref", "").strip()
                 if not kernel_ref:
@@ -344,12 +371,21 @@ def cleanup_stale_kernels(username, current_slug=None, force_kill_running=False)
                 if "synexan" in kernel_ref.lower():
                     if current_slug and current_slug.lower() in kernel_ref.lower():
                         continue
-                    # Bảo vệ tuyệt đối notebook Public cố định để link trên Web không bao giờ bị 404
-                    if kernel_ref.lower().endswith("/synexan-flood-backend-gpu"):
-                        continue
+                    checked_synexan += 1
+                    if checked_synexan > 8:
+                        break
 
-                    if force_kill_running or FORCE_PUSH:
-                        print(f"   🗑️ Đang xóa phiên synexan cũ để giải phóng slot GPU: {kernel_ref}")
+                    st_proc = subprocess.run(
+                        [*KAGGLE_CMD, "kernels", "status", kernel_ref],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    st_out = (st_proc.stdout + st_proc.stderr).lower()
+                    is_active = ("running" in st_out) or ("queued" in st_out)
+
+                    if is_active and (force_kill_running or FORCE_PUSH):
+                        print(f"   🗑️ Đang xóa phiên synexan đang chạy để giải phóng slot GPU: {kernel_ref}")
                         res_del = subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=15)
                         if res_del.returncode != 0:
                             try:
@@ -363,23 +399,17 @@ def cleanup_stale_kernels(username, current_slug=None, force_kill_running=False)
                         time.sleep(2.5)
                         continue
 
-                    time.sleep(1)
-                    st_proc = subprocess.run(
-                        [*KAGGLE_CMD, "kernels", "status", kernel_ref],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    st_out = (st_proc.stdout + st_proc.stderr).lower()
+                    if kernel_ref.lower().endswith("/synexan-flood-backend-gpu"):
+                        continue
 
                     age = get_slug_age_seconds(kernel_ref)
                     is_zombie_queue = ("queued" in st_out) and (age is not None and age > 180)
 
-                    if is_zombie_queue or "complete" in st_out or "error" in st_out or "cancel" in st_out:
+                    if is_zombie_queue or (("complete" in st_out or "error" in st_out or "cancel" in st_out) and deleted_count < 3):
                         print(f"   🗑️ Đang xóa kernel synexan cũ/kẹt: {kernel_ref}")
                         subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=12)
                         deleted_count += 1
-                        time.sleep(2)
+                        time.sleep(1.5)
         if deleted_count > 0:
             time.sleep(3)
     except Exception as e:
