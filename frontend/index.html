@@ -869,12 +869,34 @@
     }
 
     // ========================================================================
-    // KIỂM TRA ONLINE BACKEND API MODEL (LUÔN ĐỒNG BỘ TỪ UPSTASH REDIS)
+    // KIỂM TRA ONLINE BACKEND API MODEL (STICKY SESSION LOCK - KHÔNG ĐỔI URL KHI ĐANG SỐNG)
     // ========================================================================
     async function checkBackendOnline() {
+      // 0. STICKY SESSION LOCK: Nếu giao diện đã nạp 1 URL (loadedFrameUrl), kiểm tra URL đó trước tiên!
+      // Chừng nào URL đang mở vẫn còn Online, TUYỆT ĐỐI KHÔNG lấy URL khác từ /api/config và KHÔNG reload iframe!
+      if (loadedFrameUrl && loadedFrameUrl.startsWith("http")) {
+        try {
+          const stickyPing = await fetch(`/api/status?target=${encodeURIComponent(loadedFrameUrl)}`, { cache: "no-store" });
+          if (stickyPing.ok) {
+            const stickyData = await stickyPing.json();
+            if (stickyData.online) {
+              const lat = stickyData.latencyMs || 71;
+              updateStatusUI("online", `Backend GPU: Online (${lat}ms)`);
+              updatePerfStats(0, lat);
+              if (overlay.style.display !== "none") {
+                hideOverlay();
+              }
+              return true;
+            }
+          }
+        } catch (e) {}
+        // Nếu URL đang khóa đã thực sự tắt (Offline), mở khóa để tìm URL mới
+        loadedFrameUrl = "";
+      }
+
       let serverHasUrl = false;
 
-      // LUÔN hỏi /api/config trước để nhận URL mới nhất từ Upstash Redis (kể cả khi chạy Kaggle thủ công)
+      // Chỉ hỏi /api/config khi chưa có phiên kết nối hoặc phiên cũ đã tắt
       try {
         const cfgRes = await fetch("/api/config", { cache: "no-store" });
         if (cfgRes.ok) {

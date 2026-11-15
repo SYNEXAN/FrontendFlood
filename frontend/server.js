@@ -260,6 +260,17 @@ app.post('/api/backend-url', async (req, res) => {
         if (cleanUrl.includes('api.trycloudflare.com')) {
             return res.status(400).json({ error: 'Ignored internal api.trycloudflare.com URL' });
         }
+
+        // STICKY SESSION LOCK TRÊN SERVER: Nếu đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó, không cho phiên thứ 2 ghi đè!
+        const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
+        if (currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+            const probe = await probeBackendAlive(currentUrl, 2500);
+            if (probe.online) {
+                console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
+                return res.json({ success: true, activeBackendUrl: currentUrl, keptExistingSession: true });
+            }
+        }
+
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
             status: 'ready',
