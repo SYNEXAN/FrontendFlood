@@ -130,7 +130,21 @@ async function clearStoredBackendUrl() {
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Chống cache triệt để: Đảm bảo người dùng luôn tải phiên bản Frontend mới nhất 100%
+app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    next();
+});
+
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag: false,
+    lastModified: false,
+    maxAge: 0
+}));
 
 // Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot)
 app.post('/api/backend-url', async (req, res) => {
@@ -315,11 +329,12 @@ app.post('/api/backend-shutdown', async (req, res) => {
     }
 });
 
-// Fallback all routes to index.html for SPA
+// Fallback all routes to index.html for SPA (No cache)
 app.get('*', (req, res) => {
     const publicIndex = path.join(__dirname, 'public', 'index.html');
     const rootIndex = path.join(__dirname, 'index.html');
     const targetFile = fs.existsSync(publicIndex) ? publicIndex : rootIndex;
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.sendFile(targetFile);
 });
 

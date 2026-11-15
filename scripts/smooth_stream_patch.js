@@ -29,6 +29,25 @@
     });
   }
 
+  function sanitizeAllGradioEmojis() {
+    // Loại bỏ sạch 100% tất cả emoji trên mọi thẻ tiêu đề, nút bấm, tab và nhãn
+    const emojiRegex = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}🌊⚡📁🖼️🚀⏹️⚙️🗑️🎯🚦📋📍💡]/gu;
+    const targets = document.querySelectorAll('h1, h2, h3, h4, h5, h6, button, span, label, p, .tab-nav button, .prose *');
+    targets.forEach((el) => {
+      if (el.childNodes && el.childNodes.length > 0) {
+        el.childNodes.forEach((node) => {
+          if (node.nodeType === Node.TEXT_NODE && node.nodeValue && emojiRegex.test(node.nodeValue)) {
+            node.nodeValue = node.nodeValue.replace(emojiRegex, '').trimStart();
+          }
+        });
+      }
+    });
+  }
+
+  // Quét định kỳ mỗi 500ms để đảm bảo mọi component động của Gradio đều sạch bóng icon/emoji
+  setInterval(sanitizeAllGradioEmojis, 500);
+  window.addEventListener('DOMContentLoaded', sanitizeAllGradioEmojis);
+
   function attachHeaderPerfBadges() {
     // Quét tìm các phần tử tiêu đề chứa "Màn Hình Video" hoặc "Màn Hình Giám Sát"
     const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6, .prose h4, .prose *');

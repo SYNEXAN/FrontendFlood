@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>AI Urban Flood & Traffic Congestion Monitor</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌊</text></svg>">
   
-  <!-- Font Awesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <!-- Google Fonts: Plus Jakarta Sans & Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,27 +157,23 @@
       transform: none;
     }
 
-    .btn-icon-only {
-      width: 32px;
-      height: 32px;
-      padding: 0;
-      border-radius: 50%;
-      background: rgba(30, 41, 59, 0.8);
-      color: #94a3b8;
-      border: 1px solid rgba(51, 65, 85, 0.6);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
+    .btn-reload-clean {
+      padding: 5px 12px;
+      border-radius: 9999px;
+      background: rgba(30, 41, 59, 0.85);
+      color: #cbd5e1;
+      border: 1px solid rgba(51, 65, 85, 0.7);
+      font-size: 11.5px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
+      font-family: inherit;
     }
 
-    .btn-icon-only:hover {
+    .btn-reload-clean:hover {
       color: #ffffff;
-      background: rgba(51, 65, 85, 0.9);
+      background: rgba(51, 65, 85, 0.95);
       border-color: #64748b;
-      transform: rotate(15deg);
     }
 
     /* FULLSCREEN LOADING & CONNECTION OVERLAY */
@@ -644,9 +640,9 @@
       <span id="topStatusText">Đang kết nối Backend GPU...</span>
     </div>
 
-    <!-- Nút Tải lại Iframe -->
-    <button id="btnReloadFrame" class="btn-icon-only" title="Tải lại giao diện Model">
-      <i class="fa-solid fa-arrows-rotate"></i>
+    <!-- Nút Tải lại Iframe (Không icon) -->
+    <button id="btnReloadFrame" class="btn-reload-clean" title="Tải lại giao diện Model">
+      Tải lại
     </button>
   </div>
 
@@ -715,9 +711,8 @@
     title="AI Urban Flood & Traffic Congestion Monitor">
   </iframe>
 
-  <!-- TOAST NOTIFICATION -->
+  <!-- TOAST NOTIFICATION (KHÔNG ICON) -->
   <div id="toast-msg">
-    <i class="fa-solid fa-circle-info" id="toastIcon"></i>
     <span id="toastText">Thông báo</span>
   </div>
 
@@ -787,11 +782,11 @@
     function showToast(message, type = "info") {
       toastText.textContent = message;
       if (type === "success") {
-        toastIcon.className = "fa-solid fa-circle-check text-emerald-400";
+        toastMsg.style.borderColor = "rgba(16, 185, 129, 0.5)";
       } else if (type === "error") {
-        toastIcon.className = "fa-solid fa-triangle-exclamation text-rose-400";
+        toastMsg.style.borderColor = "rgba(239, 68, 68, 0.5)";
       } else {
-        toastIcon.className = "fa-solid fa-circle-info text-blue-400";
+        toastMsg.style.borderColor = "rgba(56, 189, 248, 0.4)";
       }
       toastMsg.style.display = "flex";
       setTimeout(() => { toastMsg.style.display = "none"; }, 3500);
@@ -867,8 +862,23 @@
     // KIỂM TRA ONLINE BACKEND API MODEL
     // ========================================================================
     async function checkBackendOnline() {
+      let config = getConfig();
 
-      const config = getConfig();
+      // Nếu chưa có URL hoặc URL rỗng, tự động lấy URL mới nhất từ Serverless Upstash/Vercel
+      if (!config.backendUrl || config.backendUrl === "about:blank") {
+        try {
+          const cfgRes = await fetch("/api/config", { cache: "no-store" });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg && cfg.defaultBackendUrl && cfg.defaultBackendUrl.startsWith("http")) {
+              DEFAULT_CONFIG.backendUrl = cfg.defaultBackendUrl;
+              config.backendUrl = cfg.defaultBackendUrl;
+              localStorage.setItem("synexan_active_backend_url", cfg.defaultBackendUrl);
+            }
+          }
+        } catch (e) {}
+      }
+
       if (!config.backendUrl || config.backendUrl === "about:blank") {
         updateStatusUI("offline", "Backend GPU: Offline");
         return false;
@@ -885,6 +895,11 @@
             updateStatusUI("online", `Backend GPU: Online (${lat}ms)`);
             localStorage.setItem("synexan_active_backend_url", config.backendUrl);
             updatePerfStats(0, lat);
+
+            // Tự động mở giao diện AI tức thì (0 giây chờ, không cần reload F5)
+            if (overlay.style.display !== "none" || frame.src !== config.backendUrl) {
+              onBackendConnected(config.backendUrl, lat);
+            }
             return true;
           }
         }
@@ -902,6 +917,11 @@
         if (res.ok) {
           updateStatusUI("online", `Backend GPU: Online (${elapsed}ms)`);
           updatePerfStats(0, elapsed);
+
+          // Tự động mở giao diện AI tức thì (0 giây chờ, không cần reload F5)
+          if (overlay.style.display !== "none" || frame.src !== config.backendUrl) {
+            onBackendConnected(config.backendUrl, elapsed);
+          }
           return true;
         }
       } catch (directErr) {}
@@ -1038,7 +1058,7 @@
                 updateStep(4, "done", "4. Kết nối đường hầm AI thành công!");
                 updateStatusUI("online", `Backend GPU: Online (${pData.latencyMs || 0}ms)`);
 
-                overlaySubText.textContent = "🎉 Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
+                overlaySubText.textContent = "Kết nối GPU Tesla T4 thành công! Đang mở giao diện...";
                 showToast("GPU AI đã online! Đang mở giao diện...", "success");
 
                 frame.src = currentConfig.backendUrl;
@@ -1168,9 +1188,9 @@
       updatePerfStats(0, lat);
 
       if (overlaySubText) {
-        overlaySubText.textContent = "🎉 Đã kết nối Backend GPU! Đang mở giao diện AI...";
+        overlaySubText.textContent = "Đã kết nối Backend GPU! Đang mở giao diện AI...";
       }
-      showToast("🎉 Đã kết nối Backend GPU! Đang mở giao diện...", "success");
+      showToast("Đã kết nối Backend GPU! Đang mở giao diện...", "success");
 
       if (frame.src !== url) {
         frame.src = url;
@@ -1211,9 +1231,9 @@
               }
               if (kLog.status === "error") {
                 showToast(kLog.message, "error");
-                updateStatusUI("offline", "❌ Lỗi: " + (kLog.message.substring(0, 30)));
+                updateStatusUI("offline", "Lỗi: " + (kLog.message.substring(0, 30)));
               } else if (kLog.status === "running") {
-                updateStatusUI("connecting", "⏳ Đang nạp AI...");
+                updateStatusUI("connecting", "Đang nạp AI...");
               }
             }
           }
@@ -1264,7 +1284,7 @@
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
-        updateStatusUI("connecting", "⏳ Đang kết nối GPU...");
+        updateStatusUI("connecting", "Đang kết nối GPU...");
         if (overlaySubText) {
           overlaySubText.textContent = "Đang gửi tín hiệu khởi động Backend GPU Tesla T4...";
         }

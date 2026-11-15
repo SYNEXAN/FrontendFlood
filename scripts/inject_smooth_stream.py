@@ -21,11 +21,7 @@ def inject_patch():
         with open(template_file, "r", encoding="utf-8") as f:
             content = f.read()
 
-        if "synexan-smooth-stream" in content:
-            print("✅ [Injector] Gradio template đã được tích hợp Smooth Stream Jitter Buffer trước đó.")
-            return True
-
-        # Đọc nội dung script patch
+        # Đọc nội dung script patch mới nhất
         script_dir = os.path.dirname(os.path.abspath(__file__))
         patch_file = os.path.join(script_dir, "smooth_stream_patch.js")
         
@@ -36,13 +32,18 @@ def inject_patch():
         with open(patch_file, "r", encoding="utf-8") as f:
             js_code = f.read()
 
+        # Nếu đã có script cũ, xóa khối cũ để luôn cập nhật bộ code mới nhất
+        if "synexan-smooth-stream" in content:
+            content = re.sub(r'<script id="synexan-smooth-stream">.*?</script>\s*', '', content, flags=re.DOTALL)
+            print("🔄 [Injector] Đã phát hiện script cũ, tiến hành cập nhật phiên bản mới nhất...")
+
         injection = f"\n<script id=\"synexan-smooth-stream\">\n{js_code}\n</script>\n</head>"
         new_content = content.replace("</head>", injection, 1)
 
         with open(template_file, "w", encoding="utf-8") as f:
             f.write(new_content)
 
-        print(f"🎉 [Injector] Đã tích hợp thành công GPU Canvas Jitter Buffer vào Gradio template ({template_file})!")
+        print(f"🎉 [Injector] Đã tích hợp thành công GPU Canvas & Single-Screen Manager vào Gradio template ({template_file})!")
         return True
     except Exception as e:
         print(f"❌ [Injector] Lỗi tích hợp: {e}")
