@@ -910,8 +910,8 @@
             localStorage.setItem("synexan_active_backend_url", config.backendUrl);
             updatePerfStats(0, lat);
 
-            // Tự động mở giao diện AI tức thì (0 giây chờ, không cần reload F5)
-            if (overlay.style.display !== "none" || frame.src !== config.backendUrl) {
+            // Tự động mở giao diện AI tức thì (chỉ khi chưa mở hoặc URL thực sự thay đổi)
+            if (overlay.style.display !== "none" || !isFrameLoadedWith(config.backendUrl)) {
               onBackendConnected(config.backendUrl, lat);
             }
             return true;
@@ -933,8 +933,8 @@
           localStorage.setItem("synexan_active_backend_url", config.backendUrl);
           updatePerfStats(0, elapsed);
 
-          // Tự động mở giao diện AI tức thì (0 giây chờ, không cần reload F5)
-          if (overlay.style.display !== "none" || frame.src !== config.backendUrl) {
+          // Tự động mở giao diện AI tức thì (chỉ khi chưa mở hoặc URL thực sự thay đổi)
+          if (overlay.style.display !== "none" || !isFrameLoadedWith(config.backendUrl)) {
             onBackendConnected(config.backendUrl, elapsed);
           }
           return true;
@@ -1119,10 +1119,21 @@
     btnConnectApiTop.addEventListener("click", () => triggerZeroLeakWake());
     btnConnectApiOverlay.addEventListener("click", () => triggerZeroLeakWake());
 
+    let loadedFrameUrl = "";
+    function normalizeUrl(u) {
+      return (u || "").trim().replace(/\/+$/, "");
+    }
+    function isFrameLoadedWith(url) {
+      const target = normalizeUrl(url);
+      if (!target || !target.startsWith("http")) return false;
+      return normalizeUrl(loadedFrameUrl) === target || normalizeUrl(frame.src) === target;
+    }
+
     const btnEnterAppDirectly = document.getElementById("btnEnterAppDirectly");
     if (btnEnterAppDirectly) {
       btnEnterAppDirectly.addEventListener("click", () => {
         const config = getConfig();
+        loadedFrameUrl = normalizeUrl(config.backendUrl);
         frame.src = config.backendUrl;
         updateStatusUI("online", "GPU Tesla T4 (Đang mở)");
         hideOverlay();
@@ -1132,6 +1143,7 @@
 
     btnReloadFrame.addEventListener("click", () => {
       const config = getConfig();
+      loadedFrameUrl = normalizeUrl(config.backendUrl);
       frame.src = config.backendUrl;
       showToast("Đang tải lại giao diện Model...", "info");
     });
@@ -1141,13 +1153,9 @@
       checkBackendOnline();
     });
 
-    frame.addEventListener("load", async () => {
+    frame.addEventListener("load", () => {
       if (frame.src && frame.src !== "about:blank" && !frame.src.startsWith("data:")) {
-        const online = await checkBackendOnline();
-        if (online) {
-          hideOverlay();
-          showToast("Giao diện AI Model đã sẵn sàng!", "success");
-        }
+        hideOverlay();
       }
     });
 
@@ -1199,7 +1207,7 @@
     startHeartbeat();
 
     // ========================================================================
-    // TỰ ĐỘNG MỞ GIAO DIỆN KHI KẾT NỐI ĐƯỢC BACKEND
+    // TỰ ĐỘNG MỞ GIAO DIỆN KHI KẾT NỐI ĐƯỢC BACKEND (CHỈ NẠP 1 LẦN DUY NHẤT)
     // ========================================================================
     function onBackendConnected(url, latencyMs) {
       if (!url || !url.startsWith("http")) return;
@@ -1208,19 +1216,21 @@
       updateStatusUI("online", `Backend GPU: Online (${lat}ms)`);
       updatePerfStats(0, lat);
 
-      if (overlaySubText) {
-        overlaySubText.textContent = "Đã kết nối Backend GPU! Đang mở giao diện AI...";
-      }
-      showToast("Đã kết nối Backend GPU! Đang mở giao diện...", "success");
-
-      if (frame.src !== url) {
+      if (!isFrameLoadedWith(url)) {
+        loadedFrameUrl = normalizeUrl(url);
+        if (overlaySubText) {
+          overlaySubText.textContent = "Đã kết nối Backend GPU! Đang mở giao diện AI...";
+        }
+        showToast("Đã kết nối Backend GPU! Đang mở giao diện...", "success");
         frame.src = url;
       }
 
       // Tự động mở giao diện AI ngay tức thì
-      setTimeout(() => {
-        hideOverlay();
-      }, 350);
+      if (overlay.style.display !== "none") {
+        setTimeout(() => {
+          hideOverlay();
+        }, 350);
+      }
     }
 
     // ========================================================================
