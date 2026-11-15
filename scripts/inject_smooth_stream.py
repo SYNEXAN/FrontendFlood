@@ -1,28 +1,101 @@
 #!/usr/bin/env python3
 """
-Synexan AI Smooth Stream & UI Controller Injector (v4_clean_hud)
-Injects the client-side UI script into ALL Gradio HTML templates
-(including both frontend/index.html and frontend/share.html used on Kaggle/Colab),
-and hooks Gradio Slider/State defaults so "Bề rộng cột mốc" starts at minimum (4px).
-Ensures 100% zero changes to the backend/ folder.
+Synexan AI Root-Level UI & Smooth Stream Injector (v5_root_clean)
+1. Hooks Gradio in Python memory (gr.Blocks.get_config_file, gr.Slider, gr.State, gr.HTML)
+   so all emojis/icons, "Hướng dẫn gán mốc..." and strip_width=20 are sanitized AT THE ROOT
+   on the Python server before any HTML/JSON is ever generated.
+2. Injects smooth_stream_patch.js right at the top of <head> in all Gradio HTML templates
+   (index.html and share.html) so Pre-Render sanitization runs at 0ms with zero flash on reload.
+3. Ensures 100% zero modifications to the backend/ folder.
 """
 import os
 import sys
 import re
 
+EMOJI_PATTERN = re.compile(
+    r"[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\uFE0F\u200D"
+    r"🌊⚡🚗📁🖼️🚀⏹⚙️🗑🎯🚦📋📍💡📏🔄✅❌⚠️🛑🎉⏳🔎📌➔👉🎬📷📐]+",
+    flags=re.UNICODE,
+)
+
+
+def clean_text_py(val):
+    if not isinstance(val, str) or not val:
+        return val
+    if (
+        "Hướng dẫn gán mốc" in val
+        or "ướng dẫn gán mốc" in val
+        or "Hướng dẫn hiệu chuẩn" in val
+        or "Nhấp <b>4 góc</b> trên màn hình" in val
+    ):
+        return ""
+    cleaned = EMOJI_PATTERN.sub("", val)
+    cleaned = re.sub(r"(#+\s*)\s+", r"\1", cleaned)
+    cleaned = re.sub(r">\s+", ">", cleaned)
+    return cleaned.lstrip()
+
+
+def sanitize_config_dict_py(cfg):
+    if not isinstance(cfg, dict):
+        return cfg
+    if isinstance(cfg.get("title"), str):
+        cfg["title"] = clean_text_py(cfg["title"])
+
+    comps = cfg.get("components")
+    if isinstance(comps, list):
+        for c in comps:
+            if not isinstance(c, dict):
+                continue
+            p = c.get("props")
+            if not isinstance(p, dict):
+                continue
+
+            elem_id = p.get("elem_id")
+            if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
+                p["value"] = ""
+                p["visible"] = False
+
+            lbl = p.get("label")
+            if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
+                p["value"] = p.get("minimum", 4)
+
+            if c.get("type") == "state" and isinstance(p.get("value"), dict) and "strip_width" in p["value"]:
+                p["value"]["strip_width"] = 4
+
+            for k in ("label", "value", "title", "info", "placeholder"):
+                if isinstance(p.get(k), str):
+                    p[k] = clean_text_py(p[k])
+
+            if isinstance(p.get("headers"), list):
+                p["headers"] = [clean_text_py(h) if isinstance(h, str) else h for h in p["headers"]]
+
+            if isinstance(p.get("choices"), list):
+                new_choices = []
+                for ch in p["choices"]:
+                    if isinstance(ch, (list, tuple)) and len(ch) >= 2:
+                        new_choices.append([clean_text_py(ch[0]) if isinstance(ch[0], str) else ch[0], ch[1]])
+                    elif isinstance(ch, str):
+                        new_choices.append(clean_text_py(ch))
+                    else:
+                        new_choices.append(ch)
+                p["choices"] = new_choices
+    return cfg
+
 
 def install_gradio_runtime_hooks():
-    """Hook gr.Slider and gr.State in-memory so 'Bề rộng cột mốc' defaults to minimum (4px)."""
+    """Hook Gradio classes in Python memory so emojis, guide text, and strip_width=4 are applied at the root."""
     try:
         import gradio as gr
+
         if not getattr(gr.Slider, "_synexan_hooked", False):
             orig_slider_init = gr.Slider.__init__
 
             def hooked_slider_init(self, *args, **kwargs):
                 lbl = str(kwargs.get("label", "") or "")
                 if "Bề rộng cột mốc" in lbl:
-                    min_val = kwargs.get("minimum", 4)
-                    kwargs["value"] = min_val
+                    kwargs["value"] = kwargs.get("minimum", 4)
+                if "label" in kwargs and isinstance(kwargs["label"], str):
+                    kwargs["label"] = clean_text_py(kwargs["label"])
                 return orig_slider_init(self, *args, **kwargs)
 
             gr.Slider.__init__ = hooked_slider_init
@@ -39,6 +112,31 @@ def install_gradio_runtime_hooks():
 
             gr.State.__init__ = hooked_state_init
             gr.State._synexan_hooked = True
+
+        if not getattr(gr.HTML, "_synexan_hooked", False):
+            orig_html_init = gr.HTML.__init__
+
+            def hooked_html_init(self, value="", *args, **kwargs):
+                elem_id = kwargs.get("elem_id")
+                if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
+                    value = ""
+                    kwargs["visible"] = False
+                elif isinstance(value, str):
+                    value = clean_text_py(value)
+                return orig_html_init(self, value=value, *args, **kwargs)
+
+            gr.HTML.__init__ = hooked_html_init
+            gr.HTML._synexan_hooked = True
+
+        if not getattr(gr.Blocks, "_synexan_hooked", False):
+            orig_get_config = gr.Blocks.get_config_file
+
+            def hooked_get_config_file(self, *args, **kwargs):
+                cfg = orig_get_config(self, *args, **kwargs)
+                return sanitize_config_dict_py(cfg)
+
+            gr.Blocks.get_config_file = hooked_get_config_file
+            gr.Blocks._synexan_hooked = True
     except Exception as e:
         print(f"⚠️ [Runtime Hook] {e}")
 
@@ -69,7 +167,7 @@ def inject_patch():
                         with open(tpath, "r", encoding="utf-8") as tf:
                             content = tf.read()
 
-                        if "</head>" not in content:
+                        if "<head>" not in content and "</head>" not in content:
                             continue
 
                         if "synexan-smooth-stream" in content:
@@ -80,8 +178,13 @@ def inject_patch():
                                 flags=re.DOTALL
                             )
 
-                        injection = f'\n<script id="synexan-smooth-stream">\n{js_code}\n</script>\n</head>'
-                        new_content = content.replace("</head>", injection, 1)
+                        # Tiêm ngay đầu thẻ <head> để chặn window.gradio_config ở 0ms trước khi Svelte render
+                        if "<head>" in content:
+                            injection = f'<head>\n<script id="synexan-smooth-stream">\n{js_code}\n</script>\n'
+                            new_content = content.replace("<head>", injection, 1)
+                        else:
+                            injection = f'\n<script id="synexan-smooth-stream">\n{js_code}\n</script>\n</head>'
+                            new_content = content.replace("</head>", injection, 1)
 
                         with open(tpath, "w", encoding="utf-8") as tf:
                             tf.write(new_content)
@@ -89,7 +192,7 @@ def inject_patch():
                     except Exception as inner_e:
                         print(f"⚠️ [Injector] Không thể vá {tpath}: {inner_e}")
 
-        print(f"🎉 [Injector] Đã tích hợp thành công UI Controller v4 vào {len(patched_files)} Gradio templates: {patched_files}")
+        print(f"🎉 [Injector] Đã tích hợp Root-Level Controller v5 vào {len(patched_files)} Gradio templates: {patched_files}")
         return len(patched_files) > 0
     except Exception as e:
         print(f"❌ [Injector] Lỗi tích hợp: {e}")
@@ -97,8 +200,6 @@ def inject_patch():
 
 
 def start_legacy_fork_keepalive():
-    """Nếu người dùng chạy bản fork cũ của Notebook (chưa gọi kaggle_backend_launcher.py),
-    tự động dọn port 7860 cũ và chạy ngầm luồng đồng bộ Vercel + chống tắt 15 phút."""
     if os.environ.get("SYNEXAN_LAUNCHER_ACTIVE") == "1":
         return
     try:
@@ -137,7 +238,7 @@ def start_legacy_fork_keepalive():
         "    if url:\n"
         "        for ep in webhooks:\n"
         "            try:\n"
-        "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v4_clean_hud'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+        "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v5_root_clean'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
         "                urllib.request.urlopen(req, timeout=8)\n"
         "            except Exception: pass\n"
     )

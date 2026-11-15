@@ -264,16 +264,16 @@ app.post('/api/backend-url', async (req, res) => {
 
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
 
-        // Nếu đang có phiên v4_clean_hud hoạt động, từ chối mọi heartbeat từ phiên cũ
-        if (activeBackendVersion === 'v4_clean_hud' && version !== 'v4_clean_hud' && currentUrl) {
+        // Nếu đang có phiên v5_root_clean hoạt động, từ chối mọi heartbeat từ phiên cũ
+        if (activeBackendVersion === 'v5_root_clean' && version !== 'v5_root_clean' && currentUrl) {
             return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
         }
 
-        // Nếu phiên mới là v4_clean_hud còn phiên cũ chưa phải v4_clean_hud -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV4 = (version === 'v4_clean_hud' && activeBackendVersion !== 'v4_clean_hud');
+        // Nếu phiên mới là v5_root_clean còn phiên cũ chưa phải v5_root_clean -> ưu tiên nâng cấp ngay lập tức!
+        const isUpgradeToV5 = (version === 'v5_root_clean' && activeBackendVersion !== 'v5_root_clean');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV4 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        if (!isUpgradeToV5 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
                 console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
@@ -281,8 +281,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        if (version === 'v4_clean_hud') {
-            activeBackendVersion = 'v4_clean_hud';
+        if (version === 'v5_root_clean') {
+            activeBackendVersion = 'v5_root_clean';
         }
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({

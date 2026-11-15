@@ -1,30 +1,140 @@
 // ==============================================================================
-// SYNEXAN AI UI & STREAM CONTROLLER (NO ICONS, SINGLE FPS BADGE, MIN STRIP WIDTH)
+// SYNEXAN AI UI & STREAM CONTROLLER (v5_root_clean: 0ms PRE-RENDER SANITIZER)
 // ==============================================================================
-// 1. Giữ nguyên bố cục 2 màn hình riêng biệt (Màn hình nạp bên trái + Màn hình dự đoán bên phải).
-// 2. Loại bỏ 100% các icon/emoji trên toàn bộ giao diện Gradio.
+// 1. Xóa tận gốc (Pre-Render 0ms) toàn bộ icon/emoji, dòng "Hướng dẫn gán mốc..."
+//    và đặt mặc định "Bề rộng cột mốc = 4" ngay trong window.gradio_config trước khi Svelte khởi tạo.
+// 2. Giữ nguyên bố cục 2 màn hình riêng biệt (Màn hình nạp bên trái + Màn hình dự đoán bên phải).
 // 3. Hiển thị duy nhất 1 badge FPS & Delay trên tiêu đề màn hình bên phải (không lặp chữ FPS, không lặp 2 badge).
-// 4. Đưa mặc định thanh trượt "Bề rộng cột mốc" về mức nhỏ nhất (min = 4).
-// 5. Đảm bảo chữ tiêu đề .header-box luôn có màu trắng sáng (#ffffff) nổi bật trên nền xanh đậm.
+// 4. Đảm bảo chữ tiêu đề .header-box luôn có màu trắng sáng (#ffffff) nổi bật trên nền xanh đậm.
 
 (function () {
   'use strict';
 
-  console.log('[Synexan UI Controller v4] Khởi động giao diện chuẩn (1 FPS Badge, Min Strip Width = 4, White Header)...');
+  const EMOJI_REGEX = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{FE0F}\u{200D}🌊⚡🚗📁🖼️🚀⏹⚙️🗑🎯🚦📋📍💡📏🔄✅❌⚠️🛑🎉⏳🔎📌➔👉🎬📷📐]/gu;
 
-  let globalLatestFps = 0;
-  let globalLatestLatency = 71;
-  let frameTimestamps = [];
-  let lastFrameSrcByCanvas = {};
-  let lastIdleResetTimer = null;
+  function cleanTextString(str) {
+    if (typeof str !== 'string' || !str) return str;
+    if (
+      str.includes('Hướng dẫn gán mốc') ||
+      str.includes('ướng dẫn gán mốc') ||
+      str.includes('Hướng dẫn hiệu chuẩn') ||
+      str.includes('Nhấp <b>4 góc</b> trên màn hình')
+    ) {
+      return '';
+    }
+    EMOJI_REGEX.lastIndex = 0;
+    return str
+      .replace(EMOJI_REGEX, '')
+      .replace(/(#+\s*)\s+/g, '$1')
+      .replace(/>\s+/g, '>')
+      .replace(/^\s+/, '');
+  }
 
   // ----------------------------------------------------------------------------
-  // 0. CSS TIÊM TRỰC TIẾP: SỬA MÀU CHỮ TIÊU ĐỀ TRẮNG SÁNG & CHỐNG LẶP BADGE
+  // 0. XÓA TẬN GỐC TRONG CẤU HÌNH GRADIO (CHẠY TỨC THÌ 0ms TRƯỚC KHI VẼ GIAO DIỆN)
+  // ----------------------------------------------------------------------------
+  function sanitizeGradioConfigRoot(cfg) {
+    if (!cfg || typeof cfg !== 'object') return cfg;
+    if (typeof cfg.title === 'string') {
+      cfg.title = cleanTextString(cfg.title);
+    }
+    if (Array.isArray(cfg.components)) {
+      cfg.components.forEach((c) => {
+        if (!c || !c.props) return;
+        const p = c.props;
+
+        // 1. Xóa tận gốc các khung hướng dẫn gán mốc / hiệu chuẩn
+        if (
+          p.elem_id === 'tab5_setup_status' ||
+          p.elem_id === 'traffic_setup_status' ||
+          p.elem_id === 'fusion_setup_status'
+        ) {
+          p.value = '';
+          p.visible = false;
+        }
+
+        // 2. Đặt mặc định thanh trượt "Bề rộng cột mốc" về mức nhỏ nhất (min = 4)
+        if (typeof p.label === 'string' && p.label.includes('Bề rộng cột mốc')) {
+          p.value = p.minimum || 4;
+        }
+        if (c.type === 'state' && p.value && typeof p.value === 'object' && 'strip_width' in p.value) {
+          p.value.strip_width = 4;
+        }
+
+        // 3. Xóa tận gốc 100% icon/emoji trong tất cả thuộc tính văn bản của Component
+        ['label', 'value', 'title', 'info', 'placeholder'].forEach((key) => {
+          if (typeof p[key] === 'string') {
+            p[key] = cleanTextString(p[key]);
+          }
+        });
+
+        if (Array.isArray(p.headers)) {
+          p.headers = p.headers.map((h) => (typeof h === 'string' ? cleanTextString(h) : h));
+        }
+
+        if (Array.isArray(p.choices)) {
+          p.choices = p.choices.map((ch) => {
+            if (Array.isArray(ch) && ch.length >= 2) {
+              return [typeof ch[0] === 'string' ? cleanTextString(ch[0]) : ch[0], ch[1]];
+            }
+            return typeof ch === 'string' ? cleanTextString(ch) : ch;
+          });
+        }
+      });
+    }
+    return cfg;
+  }
+
+  // Chặn ngay khi window.gradio_config đã có sẵn hoặc sắp được gán trong <head>
+  try {
+    let internalGradioConfig = window.gradio_config ? sanitizeGradioConfigRoot(window.gradio_config) : undefined;
+    Object.defineProperty(window, 'gradio_config', {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return internalGradioConfig;
+      },
+      set: function (newVal) {
+        internalGradioConfig = sanitizeGradioConfigRoot(newVal);
+      }
+    });
+  } catch (e) {
+    if (window.gradio_config) {
+      sanitizeGradioConfigRoot(window.gradio_config);
+    }
+  }
+
+  // Chặn luôn API fetch('/config') của Gradio để mọi dữ liệu nạp về đều sạch 100% trước khi render
+  try {
+    const origFetch = window.fetch;
+    if (typeof origFetch === 'function') {
+      window.fetch = async function (...args) {
+        const res = await origFetch.apply(this, args);
+        try {
+          const reqUrl = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+          if (reqUrl.includes('/config')) {
+            const clone = res.clone();
+            const data = await clone.json();
+            const cleaned = sanitizeGradioConfigRoot(data);
+            return new Response(JSON.stringify(cleaned), {
+              status: res.status,
+              statusText: res.statusText,
+              headers: res.headers
+            });
+          }
+        } catch (err) {}
+        return res;
+      };
+    }
+  } catch (e) {}
+
+  // ----------------------------------------------------------------------------
+  // 1. CSS TIÊM NGAY TRONG <HEAD>: CHỮ TIÊU ĐỀ TRẮNG SÁNG & ẨN VĨNH VIỄN DÒNG HƯỚNG DẪN
   // ----------------------------------------------------------------------------
   function injectCustomStyles() {
-    if (document.getElementById('synexan-v4-custom-styles')) return;
+    if (document.getElementById('synexan-v5-custom-styles')) return;
     const style = document.createElement('style');
-    style.id = 'synexan-v4-custom-styles';
+    style.id = 'synexan-v5-custom-styles';
     style.textContent = `
       /* Đảm bảo tiêu đề chính và mô tả trong .header-box luôn trắng sáng trên nền xanh đậm */
       .header-box,
@@ -40,24 +150,37 @@
         color: #ffffff !important;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.28) !important;
       }
-      /* Ẩn hoàn toàn mọi badge phụ trên góc canvas để không bao giờ bị nhân đôi FPS */
+      /* Ẩn vĩnh viễn từ gốc khung hướng dẫn gán mốc và badge HUD phụ */
+      #tab5_setup_status,
+      #traffic_setup_status,
+      #fusion_setup_status,
       .synexan-hud-perf-badge {
         display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
       }
     `;
     (document.head || document.documentElement).appendChild(style);
   }
+  injectCustomStyles();
 
   // ----------------------------------------------------------------------------
-  // 1. LOẠI BỎ SẠCH 100% ICON / EMOJI TRÊN MỌI PHẦN TỬ GRADIO
+  // 2. LOẠI BỎ SẠCH 100% ICON / EMOJI PHÁT SINH ĐỘNG KHI THAO TÁC
   // ----------------------------------------------------------------------------
-  const EMOJI_REGEX = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{FE0F}\u{200D}🌊⚡🚗📁🖼️🚀⏹⚙️🗑🎯🚦📋📍💡📏🔄✅❌⚠️🛑🎉⏳🔎📌]/gu;
-
   function sanitizeAllGradioEmojis() {
     const selectors = 'h1, h2, h3, h4, h5, h6, button, span, label, p, b, strong, td, th, .tab-nav button, .prose *, [role="tab"]';
     const elements = document.querySelectorAll(selectors);
     elements.forEach((el) => {
       if (el.classList && el.classList.contains('synexan-header-perf-badge')) return;
+      const txt = el.textContent || '';
+      if (txt.includes('Hướng dẫn gán mốc') || txt.includes('ướng dẫn gán mốc')) {
+        el.textContent = '';
+        el.style.display = 'none';
+        return;
+      }
       if (el.childNodes && el.childNodes.length > 0) {
         el.childNodes.forEach((node) => {
           if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
@@ -73,8 +196,14 @@
   }
 
   // ----------------------------------------------------------------------------
-  // 2. CẬP NHẬT THÔNG SỐ FPS & DELAY (DUY NHẤT 1 BADGE, KHÔNG LẶP CHỮ FPS)
+  // 3. CẬP NHẬT THÔNG SỐ FPS & DELAY (DUY NHẤT 1 BADGE, KHÔNG LẶP CHỮ FPS)
   // ----------------------------------------------------------------------------
+  let globalLatestFps = 0;
+  let globalLatestLatency = 71;
+  let frameTimestamps = [];
+  let lastFrameSrcByCanvas = {};
+  let lastIdleResetTimer = null;
+
   function recordNewFrameAndComputeFps() {
     const now = performance.now();
     frameTimestamps.push(now);
@@ -109,12 +238,10 @@
   }
 
   function attachHeaderPerfBadges() {
-    // Xóa mọi badge HUD cũ nếu còn sót lại
     document.querySelectorAll('.synexan-hud-perf-badge').forEach((el) => el.remove());
 
     const headings = document.querySelectorAll('.prose h4, h4');
     headings.forEach((el) => {
-      // Lấy nội dung văn bản gốc (không tính nội dung của badge bên trong)
       let baseText = '';
       el.childNodes.forEach((node) => {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -166,7 +293,6 @@
     });
   }
 
-  // Lắng nghe cập nhật Ping / Delay từ trang mẹ Vercel
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'PING_UPDATE') {
       const pingVal = event.data.latencyMs;
@@ -178,25 +304,12 @@
   });
 
   // ----------------------------------------------------------------------------
-  // 3. ĐƯA MẶC ĐỊNH THANH TRƯỢT "BỀ RỘNG CỘT MỐC" VỀ MỨC NHỎ NHẤT (MIN = 4)
+  // 4. ĐẢM BẢO THANH TRƯỢT "BỀ RỘNG CỘT MỐC" LUÔN Ở MỨC MIN = 4 KHI KHỞI ĐỘNG
   // ----------------------------------------------------------------------------
-  function patchGradioConfigMinStripWidth() {
-    const cfg = window.gradio_config;
-    if (cfg && Array.isArray(cfg.components) && !cfg.__synexanPatchedStripWidth) {
-      cfg.__synexanPatchedStripWidth = true;
-      cfg.components.forEach((c) => {
-        if (c && c.props && typeof c.props.label === 'string' && c.props.label.includes('Bề rộng cột mốc')) {
-          c.props.value = c.props.minimum || 4;
-        }
-        if (c && c.type === 'state' && c.props && c.props.value && typeof c.props.value === 'object' && 'strip_width' in c.props.value) {
-          c.props.value.strip_width = 4;
-        }
-      });
-    }
-  }
-
   function enforceMinStripWidthOnLoad() {
-    patchGradioConfigMinStripWidth();
+    if (window.gradio_config) {
+      sanitizeGradioConfigRoot(window.gradio_config);
+    }
     const labels = document.querySelectorAll('label, span[data-testid="block-info"]');
     labels.forEach((lbl) => {
       const txt = (lbl.textContent || '').trim();
@@ -235,7 +348,7 @@
   }
 
   // ----------------------------------------------------------------------------
-  // 4. THEO DÕI MÀN HÌNH DỰ ĐOÁN BÊN PHẢI ĐỂ ĐO FPS THỰC TẾ
+  // 5. THEO DÕI MÀN HÌNH DỰ ĐOÁN BÊN PHẢI ĐỂ ĐO FPS THỰC TẾ
   // ----------------------------------------------------------------------------
   const CANVAS_IDS = ['tab5_calib_canvas', 'traffic_canvas', 'fusion_canvas'];
 
@@ -289,7 +402,7 @@
     attachCanvasObservers();
   }
 
-  setInterval(masterTick, 300);
+  setInterval(masterTick, 250);
   window.addEventListener('DOMContentLoaded', masterTick);
   window.addEventListener('load', masterTick);
 })();
