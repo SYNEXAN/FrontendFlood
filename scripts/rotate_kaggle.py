@@ -400,7 +400,8 @@ def monitor_queue_and_retry(username, slug, token=None, timeout_seconds=105):
             report_kernel_state("running", f"Kaggle đã cấp GPU cho '{slug}' sau {elapsed}s! Đang nạp mô hình AI...", raw_msg, username)
             return True, "RUNNING"
 
-        report_kernel_state("queued", f"Kaggle đang xếp hàng tài nguyên cho '{slug}' ({elapsed}s/{timeout_seconds}s)...", raw_msg, username)
+        kaggle_url = f"https://www.kaggle.com/code/{username}/{slug}"
+        report_kernel_state("queued", f"Kaggle đang xếp hàng tài nguyên cho '{slug}' ({elapsed}s/{timeout_seconds}s)...", kaggle_url, username)
 
     print(f"ℹ️ Notebook '{target_id}' vẫn đang ở trong hàng đợi QUEUED sau {timeout_seconds}s.")
     return False, "QUEUED"
@@ -425,6 +426,7 @@ def update_kernel_metadata(username, slug, use_gpu=True, machine_shape="NvidiaTe
         else:
             meta.pop("machine_shape", None)
         meta["enable_internet"] = True
+        meta["is_private"] = False  # Chế độ Public để mọi tài khoản đều truy cập và chạy thủ công được!
 
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -690,7 +692,8 @@ def main():
                 success, push_msg = push_kernel()
                 if success:
                     print(f"✅ THÀNH CÔNG! Đã khởi tạo Notebook mới '{new_slug}' trên {label} cho '{username}'.")
-                    report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp {label}...", push_msg, username)
+                    k_url = f"https://www.kaggle.com/code/{username}/{new_slug}"
+                    report_kernel_state("queued", f"Đã khởi tạo Notebook mới '{new_slug}'. Đang vào hàng đợi cấp {label}...", k_url, username)
                     break
                 else:
                     lower_msg = push_msg.lower()
@@ -717,7 +720,7 @@ def main():
                     time.sleep(6)
                     continue
                 else:
-                    report_kernel_state("queued", f"Notebook '{new_slug}' đang xếp hàng nhận GPU. Frontend sẽ tự kết nối khi GPU sẵn sàng.", None, username)
+                    report_kernel_state("queued", f"Notebook '{new_slug}' đang xếp hàng nhận GPU. Frontend sẽ tự kết nối khi GPU sẵn sàng.", k_url, username)
                     continue
             else:
                 lower_msg = push_msg.lower()

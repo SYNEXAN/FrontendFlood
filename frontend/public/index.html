@@ -603,11 +603,46 @@
         Đang chờ kết nối từ Backend GPU...
       </div>
 
-      <!-- Trạng thái chờ Backend tinh tế & Tự động mở khi kết nối -->
-      <div class="waiting-box" id="waitingBox" style="margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
-        <div class="mini-spinner" style="width: 32px; height: 32px; border-width: 3px; border-top-color: #38bdf8;"></div>
-        <div style="font-size: 13px; color: #94a3b8; max-width: 380px; line-height: 1.6; text-align: center;">
-          Hệ thống sẽ <b>tự động mở giao diện AI</b> ngay khi bạn khởi động notebook trên Kaggle hoặc Google Colab.
+      <!-- Trạng thái các bước khởi chạy tự động (4 bước) -->
+      <div class="steps-container" id="stepsContainer" style="display: block; width: 100%; max-width: 440px;">
+        <div class="step-item running" id="step-1">
+          <div class="step-icon"><i class="fa-solid fa-spinner fa-spin"></i></div>
+          <div class="step-desc">1. Đang gửi tín hiệu khởi động GPU (Zero-Leak)...</div>
+        </div>
+        <div class="step-item" id="step-2">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">2. Đang kiểm tra quota & cấp phát GPU Tesla T4...</div>
+        </div>
+        <div class="step-item" id="step-3">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">3. Nạp trọng số mô hình AI Deep Learning...</div>
+        </div>
+        <div class="step-item" id="step-4">
+          <div class="step-icon"><i class="fa-solid fa-circle"></i></div>
+          <div class="step-desc">4. Kết nối đường hầm Cloudflare & mở giao diện...</div>
+        </div>
+      </div>
+
+      <!-- KHUNG LIÊN KẾT KAGGLE NOTEBOOK PUBLIC (CHẠY THỦ CÔNG GIỜ CAO ĐIỂM) -->
+      <div id="kagglePublicCard" style="margin-top: 18px; width: 100%; max-width: 440px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 14px 16px; text-align: left; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <div style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-bolt" style="color: #fbbf24;"></i> Chạy thủ công ngay (0s chờ):
+          </div>
+          <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 8px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; letter-spacing: 0.5px;">
+            PUBLIC NOTEBOOK
+          </span>
+        </div>
+        <div style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 12px;">
+          Nếu hệ thống tự động đang xếp hàng giờ cao điểm, bạn có thể mở Notebook trên <b>bất kỳ tài khoản Kaggle nào</b> và nhấn <b>Run All</b> (cấp GPU T4 sau 3s). Web sẽ tự động mở giao diện ngay khi backend sẵn sàng!
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <a id="btnOpenKagglePublic" href="https://www.kaggle.com/code/jtachitv/synexan-flood-backend-gpu" target="_blank" rel="noopener noreferrer" style="flex: 1; min-width: 190px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(135deg, #0284c7, #2563eb); color: #ffffff; text-decoration: none; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 8px; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(37,99,235,0.35);">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> Mở Notebook trên Kaggle
+          </a>
+          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: rgba(51, 65, 85, 0.8); color: #cbd5e1; text-decoration: none; font-size: 12px; font-weight: 500; padding: 9px 12px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.2); transition: all 0.2s ease;">
+            <i class="fa-solid fa-download"></i> Tải .ipynb
+          </a>
         </div>
       </div>
     </div>
@@ -676,6 +711,7 @@
     const btnConnectApiOverlayText = document.getElementById("btnConnectApiOverlayText") || document.createElement("span");
     const stepsContainer = document.getElementById("stepsContainer");
     const cmdBadgeWrapper = document.getElementById("cmdBadgeWrapper");
+    const btnOpenKagglePublic = document.getElementById("btnOpenKagglePublic");
 
     // Toast
     const toastMsg = document.getElementById("toast-msg");
@@ -844,6 +880,7 @@
         updateStep(1, "error", `1. Lỗi: ${err.message}`);
         updateStatusUI("offline", "Kích hoạt thất bại");
         showToast(`Lỗi: ${err.message}`, "error");
+        startMonitorExecution();
       }
     }
 
@@ -871,6 +908,9 @@
               hasKernelTelemetry = true;
               if (kLog.message) {
                 overlaySubText.textContent = kLog.message;
+              }
+              if (kLog.details && kLog.details.startsWith("http") && btnOpenKagglePublic) {
+                btnOpenKagglePublic.href = kLog.details;
               }
               if (kLog.status === "queued") {
                 updateStep(2, "running", `2. ${kLog.message}`);
@@ -1163,17 +1203,14 @@
       const isOnline = await checkBackendOnline();
       if (!isOnline) {
         showOverlay();
-        updateStatusUI("connecting", "⏳ Chờ Backend GPU...");
+        updateStatusUI("connecting", "⏳ Đang kết nối GPU...");
         if (overlaySubText) {
-          overlaySubText.textContent = "Đang chờ kết nối từ Backend GPU...";
+          overlaySubText.textContent = "Đang gửi tín hiệu khởi động Backend GPU Tesla T4...";
         }
-        console.log("[LIFECYCLE] ⏳ Backend đang Offline. Bắt đầu lắng nghe tín hiệu từ Notebook...");
+        console.log("[LIFECYCLE] ⏳ Backend đang Offline. Tự động kích hoạt GPU và giám sát tiến trình...");
 
-        // Bỏ luồng tự động gọi GitHub Actions / wake-gpu để tránh tạo notebook trùng lặp
-        // triggerZeroLeakWake();
-
-        // Bắt đầu chờ thụ động: Tự động mở giao diện ngay khi nhận tín hiệu từ Kaggle / Colab
-        startWaitingForBackendSignal();
+        // Tự động kích hoạt GitHub Actions / wake-gpu
+        triggerZeroLeakWake();
       } else {
         const currentConfig = getConfig();
         onBackendConnected(currentConfig.backendUrl, 120);
