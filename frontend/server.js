@@ -268,11 +268,9 @@ app.post('/api/backend-url', async (req, res) => {
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
 
-        // Nếu nhận heartbeat từ kernel phiên bản cũ (chưa phải v6_intact_props), từ chối nếu đã có bản v6_intact_props
+        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v6_intact_props: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v5)
         if (version !== 'v6_intact_props') {
-            if (storedVersion === 'v6_intact_props' && currentUrl) {
-                return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
-            }
+            return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
         }
 
         // Nếu phiên mới là v6_intact_props còn phiên đang lưu chưa phải v6_intact_props -> ưu tiên nâng cấp ngay lập tức!

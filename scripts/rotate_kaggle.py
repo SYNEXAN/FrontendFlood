@@ -617,6 +617,10 @@ def main():
         print("Vui lòng cấu hình Secret KAGGLE_ACCOUNTS_JSON trong Settings -> Secrets của GitHub.")
         sys.exit(1)
 
+    if FORCE_PUSH and len(accounts) > 1:
+        # Đảo thứ tự ưu tiên các tài khoản dự phòng cuối danh sách (100% rảnh slot GPU) lên đầu để nhận GPU tức thì!
+        accounts = list(reversed(accounts))
+
     print(f"📋 Tìm thấy {len(accounts)} tài khoản trong danh sách dự phòng.")
     print(f"🎯 Ngưỡng an toàn tối thiểu: {MIN_GPU_HOURS_THRESHOLD}h GPU/tuần.")
 
@@ -635,11 +639,9 @@ def main():
             # 1. Cấu hình credentials
             setup_kaggle_credentials(username, key, acc.get("token"))
 
-            # 1b. Tự động dọn dẹp các phiên synexan cũ đã kết thúc/lỗi hoặc kẹt QUEUED > 3 phút
-            cleanup_stale_kernels(username)
-
             # 2. Kiểm tra xem có notebook backend nào của username ĐANG CHẠY HOẶC ĐANG CHỜ HÀNG ĐỢI
             if not FORCE_PUSH:
+                cleanup_stale_kernels(username)
                 active_ref, active_status, active_msg = find_active_backend(username)
 
                 if active_status == "RUNNING":
@@ -686,9 +688,10 @@ def main():
             print(f"✨ [NEW NOTEBOOK] Chuẩn bị khởi tạo Notebook mới toanh: '{username}/{new_slug}'")
             report_kernel_state("pushing", f"Đang chuẩn bị khởi tạo Notebook mới toanh: '{new_slug}'...", None, username)
 
-            # 4. Tự động dọn dẹp các notebook cũ đã kết thúc/lỗi để tránh rác
-            cleanup_stale_kernels(username, current_slug=new_slug)
-            time.sleep(2)
+            # 4. Tự động dọn dẹp các notebook cũ đã kết thúc/lỗi để tránh rác (chỉ chạy khi không FORCE_PUSH để tiết kiệm 30s khởi động)
+            if not FORCE_PUSH:
+                cleanup_stale_kernels(username, current_slug=new_slug)
+                time.sleep(2)
 
             # 5 & 6. Đẩy Notebook Mới lên Kaggle với cơ chế đa tầng (Dual T4 -> Single GPU -> CPU Fallback)
             accelerator_options = [
