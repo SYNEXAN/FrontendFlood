@@ -38,8 +38,35 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 os.environ["SYNEXAN_LAUNCHER_ACTIVE"] = "1"
 
 
+def detect_compute_device():
+    """Nhận diện chính xác phần cứng đang chạy (GPU Tesla T4/P100 hay CPU Fallback)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "gpu", torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+    try:
+        out = subprocess.check_output(["nvidia-smi", "-L"], text=True, stderr=subprocess.DEVNULL, timeout=3)
+        if "GPU" in out:
+            return "gpu", out.splitlines()[0].strip()
+    except Exception:
+        pass
+    return "cpu", "CPU Đa Luồng"
+
+
+COMPUTE_DEVICE_TYPE, COMPUTE_DEVICE_NAME = detect_compute_device()
+
+
 def notify_kernel_log(status, message, details=None):
-    payload = {"status": status, "message": message, "details": details}
+    payload = {
+        "status": status,
+        "message": message,
+        "details": details,
+        "version": "v9_smart_gpu",
+        "device": COMPUTE_DEVICE_TYPE,
+        "gpuName": COMPUTE_DEVICE_NAME
+    }
     data = json.dumps(payload).encode("utf-8")
     for attempt in range(2):
         try:
@@ -62,13 +89,18 @@ def notify_kernel_log(status, message, details=None):
 
 
 def push_backend_url_to_vercel(public_url, verbose=True):
-    """Đẩy URL đường hầm về Vercel kèm cơ chế thử lại đảm bảo 100% thành công."""
+    """Đẩy URL đường hầm về Vercel kèm cơ chế tự động giải phóng nếu đã có phiên GPU mới hơn thay thế."""
     if not public_url or not public_url.startswith("http"):
         return False
 
     success_any = False
     for endpoint in TARGET_WEBHOOKS:
-        payload = json.dumps({"url": public_url, "version": "v8_vn_vehicle_weights"}).encode("utf-8")
+        payload = json.dumps({
+            "url": public_url,
+            "version": "v9_smart_gpu",
+            "device": COMPUTE_DEVICE_TYPE,
+            "gpuName": COMPUTE_DEVICE_NAME
+        }).encode("utf-8")
         for attempt in range(1, 4):
             try:
                 req = urllib.request.Request(
@@ -83,8 +115,16 @@ def push_backend_url_to_vercel(public_url, verbose=True):
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status == 200:
                         success_any = True
+                        try:
+                            resp_json = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                            if resp_json.get("superseded") is True:
+                                print("🛑 [Auto-Release] Đã có phiên GPU mới hơn hoạt động trên Vercel. Tự động dừng phiên này để giải phóng slot!")
+                                subprocess.run(["pkill", "-9", "-f", "cloudflared"], check=False, stderr=subprocess.DEVNULL)
+                                os._exit(0)
+                        except Exception:
+                            pass
                         if verbose:
-                            print(f"✅ [Vercel Sync] Đã đồng bộ URL thành công tới: {endpoint}")
+                            print(f"✅ [Vercel Sync] Đã đồng bộ URL ({COMPUTE_DEVICE_TYPE.upper()}: {COMPUTE_DEVICE_NAME}) tới: {endpoint}")
                         break
             except Exception as e:
                 if verbose and attempt == 3:

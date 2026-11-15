@@ -253,10 +253,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 // Dynamic backend update endpoint (called automatically by Kaggle GPU notebook on boot & heartbeat)
 let activeBackendVersion = "";
+let activeBackendDevice = "gpu";
 const legacyUpgradeTriggeredMap = new Map();
 
 app.post('/api/backend-url', async (req, res) => {
-    const { url, version } = req.body || {};
+    const { url, version, device, gpuName } = req.body || {};
     if (url && typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
         const cleanUrl = url.trim().replace(/\/+$/, '');
         // Không nhận nhầm URL api.trycloudflare.com
@@ -267,49 +268,67 @@ app.post('/api/backend-url', async (req, res) => {
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
+        const storedDevice = (storedLog && storedLog.device) || activeBackendDevice || 'gpu';
+        const incomingDevice = (device === 'cpu') ? 'cpu' : 'gpu';
 
-        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v8_vn_vehicle_weights: Từ chối tuyệt đối mọi heartbeat từ các kernel cũ (v1..v7)
-        if (version !== 'v8_vn_vehicle_weights') {
-            return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true });
+        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v9_smart_gpu: Từ chối mọi kernel cũ (v1..v8) và yêu cầu tự tắt
+        if (version !== 'v9_smart_gpu') {
+            return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true, superseded: true });
         }
 
-        // Nếu phiên mới là v8_vn_vehicle_weights còn phiên đang lưu chưa phải v8_vn_vehicle_weights -> ưu tiên nâng cấp ngay lập tức!
-        const isUpgradeToV8 = (version === 'v8_vn_vehicle_weights' && storedVersion !== 'v8_vn_vehicle_weights');
-
-        // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản và đã có 1 URL khác đang Online (200 OK), giữ cố định URL đó!
-        if (!isUpgradeToV8 && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+        // BẢO VỆ TUYỆT ĐỐI PHIÊN GPU: Nếu đang có phiên GPU sống mà nhận heartbeat từ phiên CPU -> Từ chối và bảo phiên CPU tự tắt!
+        if (incomingDevice === 'cpu' && storedDevice === 'gpu' && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
             const probe = await probeBackendAlive(currentUrl, 2500);
             if (probe.online) {
-                console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
-                return res.json({ success: true, activeBackendUrl: currentUrl, keptExistingSession: true });
+                return res.json({ success: true, activeBackendUrl: currentUrl, keptExistingSession: true, superseded: true });
             }
         }
 
-        if (version === 'v8_vn_vehicle_weights') {
-            activeBackendVersion = 'v8_vn_vehicle_weights';
+        // ƯU TIÊN NÂNG CẤP NGAY LẬP TỨC KHI LÊN v9_smart_gpu HOẶC KHI NHẢY TỪ CPU -> GPU!
+        const isUpgradeToV9 = (version === 'v9_smart_gpu' && storedVersion !== 'v9_smart_gpu');
+        const isUpgradeCpuToGpu = (incomingDevice === 'gpu' && storedDevice === 'cpu');
+
+        // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản, cùng loại thiết bị và đã có 1 URL đang Online (200 OK), giữ cố định URL đó!
+        if (!isUpgradeToV9 && !isUpgradeCpuToGpu && currentUrl && currentUrl.startsWith('http') && currentUrl !== cleanUrl) {
+            const probe = await probeBackendAlive(currentUrl, 2500);
+            if (probe.online) {
+                console.log(`[STICKY-LOCK] 🔒 Giữ cố định phiên đang chạy (${currentUrl}), bỏ qua URL trùng lặp (${cleanUrl})`);
+                return res.json({ success: true, activeBackendUrl: currentUrl, keptExistingSession: true, superseded: true });
+            }
         }
+
+        activeBackendVersion = 'v9_smart_gpu';
+        activeBackendDevice = incomingDevice;
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
             status: 'ready',
-            message: 'Backend GPU đã sẵn sàng và kết nối thành công!',
+            message: incomingDevice === 'cpu'
+                ? 'Backend CPU (Dự phòng khi hết GPU) đang hoạt động!'
+                : 'Backend GPU đã sẵn sàng và kết nối thành công!',
             details: cleanUrl,
-            version: version || 'v1',
+            version: 'v9_smart_gpu',
+            device: incomingDevice,
+            gpuName: gpuName || (incomingDevice === 'gpu' ? 'Tesla T4' : 'CPU'),
             updatedAt: new Date().toISOString()
         });
-        console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${cleanUrl} (${version || 'v1'})`);
-        return res.json({ success: true, activeBackendUrl: cleanUrl });
+        console.log(`[INFO] 🔥 Live AI Backend URL updated to: ${cleanUrl} (${version} | ${incomingDevice.toUpperCase()})`);
+        return res.json({ success: true, activeBackendUrl: cleanUrl, device: incomingDevice });
     }
     res.status(400).json({ error: "Invalid URL" });
 });
 
 // Telemetry & Error Logging Endpoint from Kaggle Runner & Notebook
 app.post('/api/kernel-log', async (req, res) => {
-    const { status, message, details, account, timestamp } = req.body || {};
+    const { status, message, details, account, timestamp, version, device, gpuName } = req.body || {};
+    const prevLog = await getStoredKernelLog() || {};
     const logData = {
         status: status || 'info',
         message: message || '',
-        details: details || null,
-        account: account || null,
+        details: details || prevLog.details || null,
+        account: account || prevLog.account || null,
+        version: version || prevLog.version || activeBackendVersion || 'v9_smart_gpu',
+        device: device || prevLog.device || activeBackendDevice || 'gpu',
+        gpuName: gpuName || prevLog.gpuName || null,
         updatedAt: timestamp || new Date().toISOString()
     };
     await setStoredKernelLog(logData);
@@ -475,9 +494,12 @@ app.post('/api/wake-gpu', async (req, res) => {
     try {
         const isForce = !!(req.body && (req.body.force === true || req.body.force === 'true'));
 
-        // 1. Bảo vệ tuyệt đối phiên đang chạy: Nếu Backend hiện tại đang Online 200 OK, trả về luôn, KHÔNG gọi GitHub Actions!
+        // 1. Bảo vệ tuyệt đối phiên GPU đang chạy: Nếu Backend GPU đang Online 200 OK, trả về luôn, KHÔNG gọi GitHub Actions!
+        //    Nếu phiên hiện tại đang là CPU (device === 'cpu'), cho phép gọi GitHub Actions để tìm GPU nâng cấp!
         const currentUrl = await getStoredBackendUrl();
-        if (currentUrl && !isForce) {
+        const storedLog = await getStoredKernelLog();
+        const storedDevice = (storedLog && storedLog.device) || activeBackendDevice || 'gpu';
+        if (currentUrl && !isForce && storedDevice !== 'cpu') {
             const probe = await probeBackendAlive(currentUrl, 4000);
             if (probe.online) {
                 console.log(`[INFO] ✅ Backend GPU đang Online tại ${currentUrl}. Bỏ qua lệnh wake-gpu để bảo vệ phiên đang chạy!`);

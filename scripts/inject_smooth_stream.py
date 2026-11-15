@@ -659,16 +659,22 @@ def inject_patch():
         return False
 
 
-def start_v8_webhook_reporter():
-    """Đảm bảo mọi kernel đều đồng bộ version v8_vn_vehicle_weights về Vercel."""
+def start_v9_webhook_reporter():
+    """Đảm bảo mọi kernel đều đồng bộ version v9_smart_gpu kèm nhãn device (gpu/cpu) về Vercel."""
     try:
         import subprocess
         subprocess.run(["pkill", "-9", "-f", "synexan_v5_reporter"], check=False, stderr=subprocess.DEVNULL)
         subprocess.run(["pkill", "-9", "-f", "synexan_v7_reporter"], check=False, stderr=subprocess.DEVNULL)
         subprocess.run(["pkill", "-9", "-f", "synexan_v8_reporter"], check=False, stderr=subprocess.DEVNULL)
+        subprocess.run(["pkill", "-9", "-f", "synexan_v9_reporter"], check=False, stderr=subprocess.DEVNULL)
         daemon_code = (
-            "# synexan_v8_reporter\n"
-            "import time, re, os, json, urllib.request\n"
+            "# synexan_v9_reporter\n"
+            "import time, re, os, json, subprocess, urllib.request\n"
+            "dev_type = 'cpu'\n"
+            "try:\n"
+            "    import torch\n"
+            "    if torch.cuda.is_available(): dev_type = 'gpu'\n"
+            "except Exception: pass\n"
             "webhooks = ['https://frontend-flood.vercel.app/api/backend-url']\n"
             "while True:\n"
             "    time.sleep(10)\n"
@@ -684,8 +690,13 @@ def start_v8_webhook_reporter():
             "    if url:\n"
             "        for ep in webhooks:\n"
             "            try:\n"
-            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v8_vn_vehicle_weights'}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
-            "                urllib.request.urlopen(req, timeout=8)\n"
+            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v9_smart_gpu', 'device': dev_type}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+            "                with urllib.request.urlopen(req, timeout=8) as r:\n"
+            "                    rj = json.loads(r.read().decode('utf-8', errors='ignore'))\n"
+            "                    if rj.get('superseded') is True:\n"
+            "                        subprocess.run(['pkill', '-9', '-f', 'cloudflared'], check=False)\n"
+            "                        subprocess.run(['pkill', '-9', '-f', 'app.py'], check=False)\n"
+            "                        os._exit(0)\n"
             "            except Exception: pass\n"
         )
         subprocess.Popen(
@@ -700,4 +711,4 @@ def start_v8_webhook_reporter():
 
 if __name__ == "__main__":
     inject_patch()
-    start_v8_webhook_reporter()
+    start_v9_webhook_reporter()

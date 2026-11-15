@@ -872,15 +872,19 @@
     // KIỂM TRA ONLINE BACKEND API MODEL (STICKY SESSION LOCK - KHÔNG ĐỔI URL KHI ĐANG SỐNG)
     // ========================================================================
     async function checkBackendOnline() {
-      // Nếu trình duyệt đang giữ phiên cũ chưa phải v8_vn_vehicle_weights, kiểm tra xem Server đã có v8_vn_vehicle_weights chưa (chỉ nâng cấp đúng 1 lần duy nhất)
-      if (loadedFrameUrl && window.loadedBackendVersion !== "v8_vn_vehicle_weights") {
+      // Nếu trình duyệt đang giữ phiên cũ chưa phải v9_smart_gpu hoặc đang ở chế độ CPU dự phòng, kiểm tra xem Server đã có GPU v9_smart_gpu chưa
+      if (loadedFrameUrl && (window.loadedBackendVersion !== "v9_smart_gpu" || window.loadedBackendDevice === "cpu")) {
         try {
           const upRes = await fetch("/api/config", { cache: "no-store" });
           if (upRes.ok) {
             const upCfg = await upRes.json();
-            if (upCfg && upCfg.kernelLog && upCfg.kernelLog.version === "v8_vn_vehicle_weights" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
-              window.loadedBackendVersion = "v8_vn_vehicle_weights";
-              if (!isFrameLoadedWith(upCfg.defaultBackendUrl)) {
+            const kLog = (upCfg && upCfg.kernelLog) || {};
+            if (kLog.version === "v9_smart_gpu" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
+              const newDev = kLog.device || "gpu";
+              const shouldSwitch = (window.loadedBackendVersion !== "v9_smart_gpu") || (window.loadedBackendDevice === "cpu" && newDev === "gpu");
+              window.loadedBackendVersion = "v9_smart_gpu";
+              window.loadedBackendDevice = newDev;
+              if (shouldSwitch && !isFrameLoadedWith(upCfg.defaultBackendUrl)) {
                 DEFAULT_CONFIG.backendUrl = upCfg.defaultBackendUrl;
                 localStorage.setItem("synexan_active_backend_url", upCfg.defaultBackendUrl);
                 loadedFrameUrl = "";
