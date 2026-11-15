@@ -34,14 +34,44 @@ function getGitHubCredentials() {
 }
 
 // ============================================================================
-// UPSTASH REDIS REST API CLIENT (SINGLE SOURCE OF TRUTH ACROSS LAMBDAS)
+// UPSTASH REDIS REST API & SERVERLESS STATE CLIENT
 // ============================================================================
+const TMP_STATE_FILE = '/tmp/synexan_backend_state.json';
+
+function getUpstashConfig() {
+    const redisUrl = (process.env.UPSTASH_REDIS_REST_URL || '')
+        .trim()
+        .replace(/^["']|["']$/g, '')
+        .replace(/\/+$/, '');
+    const redisToken = (process.env.UPSTASH_REDIS_REST_TOKEN || '')
+        .trim()
+        .replace(/^["']|["']$/g, '');
+    return { redisUrl, redisToken };
+}
+
+function readTmpBackendUrl() {
+    try {
+        if (fs.existsSync(TMP_STATE_FILE)) {
+            const raw = JSON.parse(fs.readFileSync(TMP_STATE_FILE, 'utf8'));
+            if (raw && raw.url && typeof raw.url === 'string' && raw.url.startsWith('http')) {
+                return raw.url;
+            }
+        }
+    } catch (e) {}
+    return '';
+}
+
+function writeTmpBackendUrl(url) {
+    try {
+        fs.writeFileSync(TMP_STATE_FILE, JSON.stringify({ url: url || '', updatedAt: Date.now() }), 'utf8');
+    } catch (e) {}
+}
+
 async function getStoredBackendUrl() {
-    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    const { redisUrl, redisToken } = getUpstashConfig();
     if (redisUrl && redisToken) {
         try {
-            const res = await fetch(`${redisUrl.replace(/\/+$/, '')}/get/activeBackendUrl`, {
+            const res = await fetch(`${redisUrl}/get/activeBackendUrl`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -54,25 +84,32 @@ async function getStoredBackendUrl() {
                 const data = await res.json();
                 if (data && data.result && typeof data.result === 'string' && data.result.startsWith('http')) {
                     activeBackendUrl = data.result;
+                    writeTmpBackendUrl(activeBackendUrl);
                     return activeBackendUrl;
                 }
-                activeBackendUrl = "";
-                return DEFAULT_BACKEND_URL;
             }
         } catch (err) {
             console.error('[WARN] Failed to read activeBackendUrl from Upstash Redis:', err.message);
         }
     }
-    return activeBackendUrl || DEFAULT_BACKEND_URL;
+    if (activeBackendUrl && activeBackendUrl.startsWith('http')) {
+        return activeBackendUrl;
+    }
+    const tmpUrl = readTmpBackendUrl();
+    if (tmpUrl) {
+        activeBackendUrl = tmpUrl;
+        return activeBackendUrl;
+    }
+    return DEFAULT_BACKEND_URL;
 }
 
 async function setStoredBackendUrl(url) {
     activeBackendUrl = url;
-    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    writeTmpBackendUrl(url);
+    const { redisUrl, redisToken } = getUpstashConfig();
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl.replace(/\/+$/, ''), {
+            await fetch(redisUrl, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -89,11 +126,10 @@ async function setStoredBackendUrl(url) {
 }
 
 async function getStoredKernelLog() {
-    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    const { redisUrl, redisToken } = getUpstashConfig();
     if (redisUrl && redisToken) {
         try {
-            const res = await fetch(`${redisUrl.replace(/\/+$/, '')}/get/kernelLog`, {
+            const res = await fetch(`${redisUrl}/get/kernelLog`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -122,11 +158,10 @@ async function getStoredKernelLog() {
 
 async function setStoredKernelLog(logData) {
     localKernelLog = logData;
-    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    const { redisUrl, redisToken } = getUpstashConfig();
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl.replace(/\/+$/, ''), {
+            await fetch(redisUrl, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -144,11 +179,14 @@ async function setStoredKernelLog(logData) {
 
 async function clearStoredBackendUrl() {
     activeBackendUrl = "";
-    const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-    const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    writeTmpBackendUrl("");
+    if (localKernelLog && localKernelLog.status === 'ready') {
+        localKernelLog = null;
+    }
+    const { redisUrl, redisToken } = getUpstashConfig();
     if (redisUrl && redisToken) {
         try {
-            await fetch(redisUrl.replace(/\/+$/, ''), {
+            await fetch(redisUrl, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${redisToken}`,
@@ -251,8 +289,13 @@ app.post('/api/kernel-log', async (req, res) => {
 
 // API Config Endpoint
 app.get('/api/config', async (req, res) => {
-    const liveUrl = await getStoredBackendUrl();
+    let liveUrl = await getStoredBackendUrl();
     const kernelLog = await getStoredKernelLog();
+    if ((!liveUrl || !liveUrl.startsWith('http')) && kernelLog && kernelLog.status === 'ready' && kernelLog.details && typeof kernelLog.details === 'string' && kernelLog.details.startsWith('http') && !kernelLog.details.includes('kaggle.com')) {
+        liveUrl = kernelLog.details.trim().replace(/\/+$/, '');
+        activeBackendUrl = liveUrl;
+        writeTmpBackendUrl(liveUrl);
+    }
     res.json({
         defaultBackendUrl: liveUrl,
         wakeGpuConfigured: true,
