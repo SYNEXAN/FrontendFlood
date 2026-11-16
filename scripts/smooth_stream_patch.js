@@ -44,13 +44,33 @@
         if (!c || !c.props) return;
         const p = c.props;
 
-        // 1. Xóa tận gốc các khung hướng dẫn gán mốc / hiệu chuẩn
+        // 1. Xóa tận gốc các khung hướng dẫn gán mốc / hiệu chuẩn và ẩn hoàn toàn công cụ chấm mốc
         if (
           p.elem_id === 'tab5_setup_status' ||
           p.elem_id === 'traffic_setup_status' ||
-          p.elem_id === 'fusion_setup_status'
+          p.elem_id === 'fusion_setup_status' ||
+          p.elem_id === 'tab_item_fusion_gauge' ||
+          p.elem_id === 'tab_item_fusion_lane' ||
+          p.elem_id === 'fusion_seek_slider' ||
+          p.elem_id === 'tab5_seek_slider' ||
+          p.elem_id === 'traffic_seek_slider'
         ) {
           p.value = '';
+          p.visible = false;
+        }
+
+        if (
+          typeof p.label === 'string' &&
+          (p.label.includes('Thiết Lập Cột Mốc') ||
+            p.label.includes('Thiết Lập Khung Làn Đường') ||
+            p.label.includes('Khung hình video') ||
+            p.label.includes('Thông tin cột mốc') ||
+            p.label.includes('Tên cột mốc') ||
+            p.label.includes('Điểm đầu') ||
+            p.label.includes('Điểm cuối') ||
+            p.label.includes('Cột mốc đã lưu') ||
+            p.label.includes('Nhãn khung làn đường'))
+        ) {
           p.visible = false;
         }
 
@@ -169,10 +189,20 @@
         color: #ffffff !important;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.28) !important;
       }
-      /* Ẩn vĩnh viễn từ gốc khung hướng dẫn gán mốc và badge HUD phụ */
+      /* Ẩn vĩnh viễn toàn bộ công cụ gán mốc / hiệu chuẩn thủ công và badge HUD phụ */
       #tab5_setup_status,
       #traffic_setup_status,
       #fusion_setup_status,
+      #tab_item_fusion_gauge,
+      #tab_item_fusion_lane,
+      [id*="tab_item_fusion_gauge"],
+      [id*="tab_item_fusion_lane"],
+      [id*="fusion_seek_slider"],
+      [id*="tab5_seek_slider"],
+      [id*="traffic_seek_slider"],
+      div:has(> #fusion_seek_slider),
+      div:has(> #fusion_calib_tabs),
+      .synexan-calibration-panel,
       .synexan-hud-perf-badge {
         display: none !important;
         visibility: hidden !important;
@@ -195,7 +225,19 @@
     elements.forEach((el) => {
       if (el.classList && el.classList.contains('synexan-header-perf-badge')) return;
       const txt = el.textContent || '';
-      if (txt.includes('Hướng dẫn gán mốc') || txt.includes('ướng dẫn gán mốc')) {
+      if (
+        txt.includes('Hướng dẫn gán mốc') ||
+        txt.includes('ướng dẫn gán mốc') ||
+        txt.includes('Hướng dẫn hiệu chuẩn') ||
+        txt === 'Lưu' ||
+        txt === 'Hủy' ||
+        txt.includes('Xóa tất cả mốc') ||
+        txt.includes('Xóa cột mốc') ||
+        txt.includes('Xóa Khung Làn Đường') ||
+        txt.includes('Thiết Lập Cột Mốc') ||
+        txt.includes('Thiết Lập Khung Làn Đường') ||
+        txt.includes('Thông tin cột mốc')
+      ) {
         el.textContent = '';
         el.style.display = 'none';
         return;

@@ -17,6 +17,7 @@ import re
 import json
 import site
 import threading
+import copy
 import functools
 import urllib.request
 
@@ -32,7 +33,107 @@ EMOJI_PATTERN = re.compile(
 PRESET_API_URL = "https://frontend-flood.vercel.app/api/camera-presets"
 LOCAL_PRESETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera_presets.json")
 TMP_PRESETS_PATH = "/tmp/synexan_camera_presets.json"
-CAMERA_PRESETS_CACHE = {}
+
+DEFAULT_CAMERA_PRESETS = {
+    "_comment": "Tệp lưu trữ cố định tọa độ cột mốc (SCSG-Net) và khung làn đường (4 góc) cho từng Camera trong dự án.",
+    "cam-tran-viet-chau": {
+        "cameraKey": "cam-tran-viet-chau",
+        "cameraUrl": "rtsp://admin:Mekongpathfinder2026@tvc14738.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+        "cameraName": "Camera Trần Việt Châu",
+        "gauges": [
+            {
+                "name": "Cột mốc 1",
+                "p_bottom": [18, 60],
+                "p_mid": [15, 26],
+                "p_top": [17, 4],
+                "h_start_cm": 0.0,
+                "h_end_cm": 50.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            }
+        ],
+        "roi_points_norm": None,
+        "roi_label": "Làn đường giám sát",
+        "updatedAt": "2026-11-16T08:58:35.545Z",
+    },
+    "cam-vo-van-kiet": {
+        "cameraKey": "cam-vo-van-kiet",
+        "cameraUrl": "rtsp://admin:Mekong2026@mekongpathfinder1pnh.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+        "cameraName": "Camera Võ Văn Kiệt",
+        "gauges": [
+            {
+                "name": "Cột mốc 1",
+                "p_bottom": [474, 250],
+                "p_mid": [483, 187],
+                "p_top": [489, 126],
+                "h_start_cm": 0.0,
+                "h_end_cm": 100.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            },
+            {
+                "name": "Cột mốc 2",
+                "p_bottom": [177, 278],
+                "p_mid": [170, 191],
+                "p_top": [164, 85],
+                "h_start_cm": 0.0,
+                "h_end_cm": 170.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            },
+        ],
+        "roi_points_norm": None,
+        "roi_label": "Làn đường giám sát",
+        "updatedAt": "2026-11-16T09:00:37.945Z",
+    },
+    "cam-nga-tu-3/2-thn": {
+        "cameraKey": "cam-nga-tu-3/2-thn",
+        "cameraUrl": "rtsp://admin:Mekong2026@mekongpathfinder02thn.smartddns.tv:41003/cam/realmonitor?channel=1&subtype=1",
+        "cameraName": "Camera Ngã Tư 3/2 - Trần Hoàng Na",
+        "gauges": [
+            {
+                "name": "Cột mốc 1",
+                "p_bottom": [504, 335],
+                "p_mid": [505, 261],
+                "p_top": [501, 115],
+                "h_start_cm": 0.0,
+                "h_end_cm": 500.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            }
+        ],
+        "roi_points_norm": None,
+        "roi_label": "Làn đường giám sát",
+        "updatedAt": "2026-11-16T09:07:14.335Z",
+    },
+    "cam-tran-hoang-na": {
+        "cameraKey": "cam-tran-hoang-na",
+        "cameraUrl": "rtsp://admin:Mekong2026@mekongpathfinder01thn.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+        "cameraName": "Camera Trần Hoàng Na",
+        "gauges": [
+            {
+                "name": "Cột mốc 1",
+                "p_bottom": [269, 98],
+                "p_mid": [272, 79],
+                "p_top": [273, 57],
+                "h_start_cm": 0.0,
+                "h_end_cm": 50.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            }
+        ],
+        "roi_points_norm": None,
+        "roi_label": "Làn đường giám sát",
+        "updatedAt": "2026-11-16T09:09:41.526Z",
+    },
+}
+
+CAMERA_PRESETS_CACHE = copy.deepcopy(DEFAULT_CAMERA_PRESETS)
 LAST_ACTIVE_CAMERA = {"key": None, "url": None, "name": None}
 
 
@@ -55,9 +156,9 @@ def clean_text_py(val):
 
 
 def load_camera_presets_from_all_sources():
-    """Tải presets đã lưu của các Camera từ file cục bộ và từ Vercel Cloud (Upstash Redis)."""
+    """Tải presets đã lưu của các Camera từ bản nhúng cố định, file cục bộ và Vercel Cloud (Upstash Redis)."""
     global CAMERA_PRESETS_CACHE
-    merged = {}
+    merged = copy.deepcopy(DEFAULT_CAMERA_PRESETS)
     for p in (LOCAL_PRESETS_PATH, TMP_PRESETS_PATH):
         if p and os.path.exists(p):
             try:
@@ -558,11 +659,22 @@ def install_camera_preset_hooks(blocks_instance):
         setattr(main_mod, "on_traffic_camera_connect", wrapped_traffic_cam)
         fn_replacements[orig_traffic_cam] = wrapped_traffic_cam
 
-    # 5. Hook run_fusion_live: Thay thế văn phong AI máy móc thành chuẩn IOC Đô Thị Thực Tế & Lọc sạch 100% Emoji
+    # 5. Hook run_fusion_live: Tự động khôi phục cột mốc cố định & Chuẩn hóa hiển thị IOC
     orig_run_fusion = getattr(main_mod, "run_fusion_live", None)
     if callable(orig_run_fusion):
         @functools.wraps(orig_run_fusion)
         def wrapped_run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
+            try:
+                cam_key, cam_url, cam_name = resolve_canonical_camera_info(None, state_data, main_mod)
+                if cam_key:
+                    mgr = getattr(main_mod, "global_multi_gauge_manager", None)
+                    has_configured = mgr is not None and any(getattr(gx, "is_configured", False) for gx in getattr(mgr, "gauges", {}).values())
+                    if not has_configured:
+                        base_frame = main_mod.get_state_base_frame(state_data) if hasattr(main_mod, "get_state_base_frame") else None
+                        restore_presets_for_camera(cam_key, cam_url, base_frame, main_mod)
+            except Exception as cam_err:
+                print(f"ℹ️ [Auto-Restore Gauge on Run] {cam_err}")
+
             gen = orig_run_fusion(state_data, flood_conf, veh_conf, start_frame_slider)
             import pandas as pd
             try:
@@ -682,11 +794,30 @@ def sanitize_blocks_in_memory(blocks_instance):
         blocks_dict = getattr(blocks_instance, "blocks", {}) or {}
         for b in blocks_dict.values():
             elem_id = getattr(b, "elem_id", None)
-            if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
+            if (
+                elem_id in (
+                    "tab5_setup_status", "traffic_setup_status", "fusion_setup_status",
+                    "tab_item_fusion_gauge", "tab_item_fusion_lane",
+                    "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
+                )
+                or (isinstance(elem_id, str) and "setup_status" in elem_id)
+            ):
                 b.value = ""
                 b.visible = False
 
             lbl = getattr(b, "label", None)
+            if isinstance(lbl, str) and any(k in lbl for k in (
+                "Khung hình video", "Thiết Lập Cột Mốc", "Thiết Lập Khung Làn Đường",
+                "Thông tin cột mốc", "Tên cột mốc", "Điểm đầu", "Điểm cuối",
+                "Bề rộng cột mốc", "Cột mốc đã lưu", "Nhãn khung làn đường"
+            )):
+                b.visible = False
+
+            val = getattr(b, "value", None)
+            if isinstance(val, str) and val in (
+                "Lưu", "Hủy", "Xóa tất cả mốc", "Xóa cột mốc", "Xóa Khung Làn Đường"
+            ):
+                b.visible = False
             if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
                 b.value = getattr(b, "minimum", 4) or 4
 
@@ -735,11 +866,31 @@ def sanitize_config_dict_py(cfg):
                 continue
 
             elem_id = p.get("elem_id")
-            if elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status"):
+            if (
+                elem_id in (
+                    "tab5_setup_status", "traffic_setup_status", "fusion_setup_status",
+                    "tab_item_fusion_gauge", "tab_item_fusion_lane",
+                    "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
+                )
+                or (isinstance(elem_id, str) and "setup_status" in elem_id)
+            ):
                 p["value"] = ""
                 p["visible"] = False
 
             lbl = p.get("label")
+            if isinstance(lbl, str) and any(k in lbl for k in (
+                "Khung hình video", "Thiết Lập Cột Mốc", "Thiết Lập Khung Làn Đường",
+                "Thông tin cột mốc", "Tên cột mốc", "Điểm đầu", "Điểm cuối",
+                "Bề rộng cột mốc", "Cột mốc đã lưu", "Nhãn khung làn đường"
+            )):
+                p["visible"] = False
+
+            val = p.get("value")
+            if isinstance(val, str) and val in (
+                "Lưu", "Hủy", "Xóa tất cả mốc", "Xóa cột mốc", "Xóa Khung Làn Đường"
+            ):
+                p["visible"] = False
+
             if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
                 p["value"] = p.get("minimum", 4)
 
