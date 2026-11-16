@@ -512,32 +512,235 @@ def sanitize_config_dict_py(cfg):
 
 
 def install_custom_vehicle_weights():
-    """Sao lưu trọng số cũ (yolov8s_vehicle_backup.pt) và kích hoạt trọng số 4 lớp VN (yolov8s_vn_vehicle_best.pt)."""
+    """Sao lưu trọng số cũ và kích hoạt trọng số 4 lớp VN (yolov8s_vn_vehicle_best.pt) + Flood V20 (yolov8m_flood_v20_scratch.pt)."""
     try:
         import shutil
-        custom_weight = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
-        if not os.path.exists(custom_weight) or os.path.getsize(custom_weight) < 15000000:
-            return
         models_dir = "/kaggle/working/FrontendFlood/backend/models"
         os.makedirs(models_dir, exist_ok=True)
-        target_weight = os.path.join(models_dir, "yolov8s_vehicle.pt")
-        backup_weight = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
 
-        if os.path.exists(target_weight) and not os.path.exists(backup_weight):
-            if os.path.getsize(target_weight) != os.path.getsize(custom_weight):
-                shutil.copy2(target_weight, backup_weight)
-                print(f"📦 [Weight Backup] Đã sao lưu trọng số cũ tại: {backup_weight} ({os.path.getsize(backup_weight)} bytes)")
+        # 1. Trọng số phương tiện 4 lớp VN
+        custom_weight = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
+        if os.path.exists(custom_weight) and os.path.getsize(custom_weight) > 15000000:
+            target_weight = os.path.join(models_dir, "yolov8s_vehicle.pt")
+            backup_weight = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
+            if os.path.exists(target_weight) and not os.path.exists(backup_weight):
+                if os.path.getsize(target_weight) != os.path.getsize(custom_weight):
+                    shutil.copy2(target_weight, backup_weight)
+                    print(f"📦 [Weight Backup] Đã sao lưu trọng số phương tiện cũ tại: {backup_weight} ({os.path.getsize(backup_weight)} bytes)")
+            if not os.path.exists(target_weight) or os.path.getsize(target_weight) != os.path.getsize(custom_weight):
+                shutil.copy2(custom_weight, target_weight)
+                print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện mới (4 lớp VN - mAP50=92.79%): {target_weight} ({os.path.getsize(target_weight)} bytes)")
 
-        if not os.path.exists(target_weight) or os.path.getsize(target_weight) != os.path.getsize(custom_weight):
-            shutil.copy2(custom_weight, target_weight)
-            print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện mới (4 lớp VN - mAP50=92.79%): {target_weight} ({os.path.getsize(target_weight)} bytes)")
+        # 2. Trọng số ngập lụt Flood V20 (yolov8m_flood_v20_scratch.pt)
+        custom_flood = "/kaggle/working/FrontendFlood/models/yolov8m_flood_v20_scratch.pt"
+        if os.path.exists(custom_flood) and os.path.getsize(custom_flood) > 30000000:
+            target_flood = os.path.join(models_dir, "vietnam_flood_yolov8s_seg.pt")
+            backup_flood = os.path.join(models_dir, "vietnam_flood_yolov8s_seg_backup.pt")
+            if os.path.exists(target_flood) and not os.path.exists(backup_flood):
+                if os.path.getsize(target_flood) != os.path.getsize(custom_flood):
+                    shutil.copy2(target_flood, backup_flood)
+                    print(f"📦 [Weight Backup] Đã sao lưu trọng số ngập cũ tại: {backup_flood} ({os.path.getsize(backup_flood)} bytes)")
+            if not os.path.exists(target_flood) or os.path.getsize(target_flood) != os.path.getsize(custom_flood):
+                shutil.copy2(custom_flood, target_flood)
+                print(f"🌊 [Custom Weights] Đã kích hoạt trọng số ngập lụt Flood V20 (YOLOv8m-seg): {target_flood} ({os.path.getsize(target_flood)} bytes)")
     except Exception as e:
         print(f"⚠️ [Custom Weights] {e}")
+
+
+def install_flood_v20_solution_1_and_5_hooks():
+    """
+    Tiêm trực tiếp Giải pháp 1 (Instance-Confidence Mask Weighting) và Giải pháp 5 (Temporal Consistency Gate)
+    vào adaptive_hybrid_depth_engine và fixed_object_gauge ở runtime mà không sửa thư mục backend/.
+    """
+    try:
+        import cv2
+        import torch
+        import numpy as np
+
+        def combine_instance_weighted_mask(f_res):
+            if f_res is None or getattr(f_res, "masks", None) is None or len(f_res.masks.data) == 0:
+                return None
+            masks_t = f_res.masks.data.float()
+            boxes = getattr(f_res, "boxes", None)
+            if boxes is not None and getattr(boxes, "conf", None) is not None and len(boxes.conf) == len(masks_t):
+                confs_t = boxes.conf.float().view(-1, 1, 1)
+                weighted = masks_t * confs_t
+            else:
+                weighted = masks_t
+            return torch.amax(weighted, dim=0).cpu().numpy()
+
+        def v20_refine_flood_segmentation_mask(
+            raw_mask, h, w, conf_thresh=0.25, prev_mask=None, frame_bgr=None, cand_prev_mask=None
+        ):
+            if raw_mask is None:
+                return np.zeros((h, w), dtype=np.float32)
+            if raw_mask.shape[:2] != (h, w):
+                mask = cv2.resize(raw_mask, (w, h), interpolation=cv2.INTER_LINEAR)
+            else:
+                mask = raw_mask.copy()
+
+            t_base = float(conf_thresh)
+            t_low = max(t_base * 0.85, 0.18)
+            candidates = (mask >= t_low).astype(np.uint8)
+            if not np.any(candidates > 0):
+                return np.zeros((h, w), dtype=np.float32)
+
+            max_frame_conf = float(np.max(mask))
+            has_strong_primary = max_frame_conf >= max(0.48, t_base + 0.12)
+            secondary_min_conf = max(0.42, t_base + 0.08)
+            instant_temporal_conf = max(0.48, t_base + 0.12)
+
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
+            clean_bin = np.zeros_like(candidates, dtype=np.uint8)
+
+            has_temporal_context = (prev_mask is not None and prev_mask.shape == (h, w))
+            has_cand_context = (cand_prev_mask is not None and cand_prev_mask.shape == (h, w))
+
+            for lbl_idx in range(1, num_labels):
+                if stats[lbl_idx, cv2.CC_STAT_AREA] < 150:
+                    continue
+                comp_region = (labels == lbl_idx)
+                comp_peak = float(np.max(mask[comp_region]))
+                if comp_peak < t_base:
+                    continue
+                # Giải pháp 1: Lọc mảnh phụ rời rạc có conf thấp khi đã có vùng nước chính
+                if has_strong_primary and comp_peak < secondary_min_conf:
+                    continue
+                # Giải pháp 5: Lọc chống nhấp nháy 1-frame theo thời gian
+                if has_temporal_context and comp_peak < instant_temporal_conf:
+                    prev_overlap = float(np.mean(prev_mask[comp_region] > 0))
+                    cand_overlap = float(np.mean(cand_prev_mask[comp_region] > 0)) if has_cand_context else 0.0
+                    if prev_overlap < 0.10 and cand_overlap < 0.15:
+                        continue
+                clean_bin[comp_region] = 1
+
+            if not np.any(clean_bin > 0):
+                return np.zeros((h, w), dtype=np.float32)
+
+            refined = np.where(clean_bin > 0, np.maximum(mask, t_base), 0.0).astype(np.float32)
+            return np.clip(refined, 0.0, 1.0)
+
+        for mod_name in ("adaptive_hybrid_depth_engine",):
+            mod = sys.modules.get(mod_name)
+            if mod is None:
+                try:
+                    mod = __import__(mod_name)
+                except Exception:
+                    mod = None
+            if mod is not None and not getattr(mod, "_synexan_v20_patched", False):
+                mod.refine_flood_segmentation_mask = v20_refine_flood_segmentation_mask
+                mod.combine_instance_weighted_mask = combine_instance_weighted_mask
+
+                def patched_process_single_frame_hybrid(
+                    frame_bgr, gauge, arbiter, flood_model, vehicle_model=None,
+                    flood_conf=0.25, veh_conf=0.35, mode="Cột mốc", is_streaming=False
+                ):
+                    import pandas as pd
+                    from fixed_object_gauge import process_single_frame_gauge
+                    h, w = frame_bgr.shape[:2]
+                    infer_imgsz = 640 if is_streaming else 800
+                    infer_retina = False if is_streaming else True
+                    flood_mask = np.zeros((h, w), dtype=np.float32)
+                    if flood_model is not None:
+                        try:
+                            f_res = flood_model.predict(
+                                frame_bgr,
+                                conf=float(flood_conf),
+                                iou=0.55,
+                                imgsz=infer_imgsz,
+                                retina_masks=infer_retina,
+                                device=getattr(mod, "INFER_DEVICE", 0),
+                                verbose=False
+                            )[0]
+                            prev_m = getattr(arbiter, "prev_flood_mask", None) if arbiter is not None else None
+                            cand_prev_m = getattr(arbiter, "candidate_flood_mask", None) if arbiter is not None else None
+                            m_np = combine_instance_weighted_mask(f_res)
+                            if m_np is not None:
+                                raw_resized = cv2.resize(m_np, (w, h), interpolation=cv2.INTER_LINEAR) if m_np.shape[:2] != (h, w) else m_np
+                                flood_mask = v20_refine_flood_segmentation_mask(
+                                    raw_resized, h, w, conf_thresh=float(flood_conf),
+                                    prev_mask=prev_m, frame_bgr=frame_bgr, cand_prev_mask=cand_prev_m
+                                )
+                                if arbiter is not None:
+                                    arbiter.candidate_flood_mask = (raw_resized >= float(flood_conf)).astype(np.float32)
+                            else:
+                                if arbiter is not None:
+                                    arbiter.candidate_flood_mask = np.zeros((h, w), dtype=np.float32)
+                                if prev_m is not None and prev_m.shape == (h, w):
+                                    flood_mask = np.where(prev_m * 0.35 >= float(flood_conf), prev_m * 0.35, 0.0).astype(np.float32)
+                            if arbiter is not None:
+                                arbiter.prev_flood_mask = flood_mask
+                        except Exception as e:
+                            print(f"⚠️ Lỗi suy luận Flood V20: {e}")
+
+                    g_measured_cm = None
+                    g_status = "UNCONFIGURED"
+                    g_rule_desc = ""
+                    active_gauge = gauge
+                    if active_gauge is not None:
+                        if hasattr(active_gauge, "measure_all") and hasattr(active_gauge, "fuse_water_level"):
+                            try:
+                                all_res = active_gauge.measure_all(water_mask=flood_mask, frame_bgr=frame_bgr)
+                                fusion_res = active_gauge.fuse_water_level(all_res)
+                                g_measured_cm = fusion_res["fused_z"] if fusion_res["status"] != "NO_FLOOD" else 0.0
+                                g_status = fusion_res["status"]
+                                g_rule_desc = fusion_res.get("rule_desc", "")
+                            except Exception as e:
+                                print(f"⚠️ Lỗi đo mạng lưới đa mốc: {e}")
+                        elif getattr(active_gauge, "is_configured", False):
+                            try:
+                                _, g_measured_cm, _, g_status, _ = process_single_frame_gauge(
+                                    frame_bgr, active_gauge, flood_model, flood_conf=flood_conf
+                                )
+                            except Exception as e:
+                                print(f"⚠️ Lỗi đo mốc thủy chuẩn: {e}")
+
+                    report = arbiter.arbitrate([], virtual_gauge=active_gauge, gauge_depth_cm=g_measured_cm)
+                    hud_bgr = mod.render_hybrid_xray_hud(frame_bgr, [], active_gauge, report, flood_mask=flood_mask)
+                    hud_rgb = cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
+
+                    alert_tag = report.alert_title.split(":")[1].strip() if ":" in report.alert_title else report.alert_title
+                    if active_gauge is not None:
+                        if hasattr(active_gauge, "gauges"):
+                            cfg_count = sum(1 for g in active_gauge.gauges.values() if g.is_configured)
+                            if cfg_count > 0 and g_measured_cm is not None:
+                                gauge_desc = g_rule_desc if g_rule_desc else f"Mạng lưới {cfg_count} mốc SCSG-Net: {g_measured_cm:.1f} cm ({g_status})"
+                            else:
+                                gauge_desc = "Chưa thiết lập mốc nào"
+                        elif getattr(active_gauge, "is_configured", False) and g_measured_cm is not None:
+                            gauge_desc = f"Cột mốc: {g_measured_cm:.1f}cm"
+                        else:
+                            gauge_desc = "Chưa thiết lập mốc"
+                    else:
+                        gauge_desc = "Chưa thiết lập mốc"
+
+                    df = pd.DataFrame([{
+                        "Nguồn Đo Lường": report.source,
+                        "Độ Sâu Ngập": f"{report.master_depth_cm:.1f} cm",
+                        "Cấp Báo Động": f"Level {report.alert_level}: {alert_tag}",
+                        "Độ Tin Cậy": f"{report.confidence_pct}%",
+                        "Thủy Chuẩn Mốc": gauge_desc,
+                    }])
+                    alarm_html = mod.format_hybrid_alarm_html(report)
+                    return hud_rgb, df, alarm_html, report
+
+                mod.process_single_frame_hybrid = patched_process_single_frame_hybrid
+                mod._synexan_v20_patched = True
+                for m_obj in list(sys.modules.values()):
+                    if m_obj is not None and hasattr(m_obj, "process_single_frame_hybrid"):
+                        try:
+                            setattr(m_obj, "process_single_frame_hybrid", patched_process_single_frame_hybrid)
+                        except Exception:
+                            pass
+                print("✨ [Flood V20 Filter] Đã kích hoạt Giải pháp 1 (Instance-Confidence Weighting) + Giải pháp 5 (Temporal Consistency Gate)!")
+    except Exception as e:
+        print(f"⚠️ [Flood V20 Filter] {e}")
 
 
 def install_gradio_runtime_hooks():
     """Hook gr.Blocks.get_config_file without modifying Component.__init__ signatures."""
     install_custom_vehicle_weights()
+    install_flood_v20_solution_1_and_5_hooks()
     try:
         import gradio as gr
 
@@ -545,6 +748,7 @@ def install_gradio_runtime_hooks():
             orig_get_config = gr.Blocks.get_config_file
 
             def hooked_get_config_file(self, *args, **kwargs):
+                install_flood_v20_solution_1_and_5_hooks()
                 install_camera_preset_hooks(self)
                 sanitize_blocks_in_memory(self)
                 cfg = orig_get_config(self, *args, **kwargs)

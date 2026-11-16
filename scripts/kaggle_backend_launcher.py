@@ -202,27 +202,36 @@ def ensure_cloudflared_binary():
 
 
 def install_custom_vehicle_weights():
-    """Sao lưu trọng số cũ (yolov8s_vehicle_backup.pt) và kích hoạt trọng số mới 4 lớp VN (yolov8s_vn_vehicle_best.pt)."""
+    """Sao lưu trọng số cũ và kích hoạt trọng số mới cho cả Phương tiện (4 lớp VN) và Ngập lụt (Flood V20 YOLOv8m-seg)."""
     try:
-        custom_weight = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
-        if not os.path.exists(custom_weight) or os.path.getsize(custom_weight) < 15000000:
-            return
         models_dir = os.path.join(WORKING_CWD, "models")
         os.makedirs(models_dir, exist_ok=True)
-        target_weight = os.path.join(models_dir, "yolov8s_vehicle.pt")
-        backup_weight = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
 
-        # 1. Sao lưu tạm trọng số cũ nếu chưa có bản backup
-        if os.path.exists(target_weight) and not os.path.exists(backup_weight):
-            if os.path.getsize(target_weight) != os.path.getsize(custom_weight):
-                shutil.copy2(target_weight, backup_weight)
-                print(f"📦 [Weight Backup] Đã sao lưu trọng số cũ tại: {backup_weight} ({os.path.getsize(backup_weight)} bytes)")
+        # 1. Trọng số Phương tiện 4 lớp VN (mAP50=92.79%)
+        custom_veh = "/kaggle/working/FrontendFlood/models/yolov8s_vn_vehicle_best.pt"
+        if os.path.exists(custom_veh) and os.path.getsize(custom_veh) > 15000000:
+            target_veh = os.path.join(models_dir, "yolov8s_vehicle.pt")
+            backup_veh = os.path.join(models_dir, "yolov8s_vehicle_backup.pt")
+            if os.path.exists(target_veh) and not os.path.exists(backup_veh):
+                if os.path.getsize(target_veh) != os.path.getsize(custom_veh):
+                    shutil.copy2(target_veh, backup_veh)
+                    print(f"📦 [Weight Backup] Đã sao lưu trọng số phương tiện cũ tại: {backup_veh} ({os.path.getsize(backup_veh)} bytes)")
+            shutil.copy2(custom_veh, target_veh)
+            print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện 4 lớp VN: {target_veh} ({os.path.getsize(target_veh)} bytes)")
 
-        # 2. Thay thế bằng trọng số mới (best.zip / yolov8s_vn_vehicle_best.pt)
-        shutil.copy2(custom_weight, target_weight)
-        print(f"🚗 [Custom Weights] Đã kích hoạt trọng số phương tiện mới (4 lớp VN - mAP50=92.79%): {target_weight} ({os.path.getsize(target_weight)} bytes)")
+        # 2. Trọng số Ngập lụt Flood V20 (yolov8m_flood_v20_scratch.pt - Mask mAP50=83.88%, Wet-Road FP=0.0%)
+        custom_flood = "/kaggle/working/FrontendFlood/models/yolov8m_flood_v20_scratch.pt"
+        if os.path.exists(custom_flood) and os.path.getsize(custom_flood) > 30000000:
+            target_flood = os.path.join(models_dir, "vietnam_flood_yolov8s_seg.pt")
+            backup_flood = os.path.join(models_dir, "vietnam_flood_yolov8s_seg_backup.pt")
+            if os.path.exists(target_flood) and not os.path.exists(backup_flood):
+                if os.path.getsize(target_flood) != os.path.getsize(custom_flood):
+                    shutil.copy2(target_flood, backup_flood)
+                    print(f"📦 [Weight Backup] Đã sao lưu trọng số ngập cũ tại: {backup_flood} ({os.path.getsize(backup_flood)} bytes)")
+            shutil.copy2(custom_flood, target_flood)
+            print(f"🌊 [Custom Weights] Đã kích hoạt trọng số ngập lụt Flood V20 (YOLOv8m-seg): {target_flood} ({os.path.getsize(target_flood)} bytes)")
     except Exception as e:
-        print(f"⚠️ [Custom Weights] Lỗi cập nhật trọng số phương tiện: {e}")
+        print(f"⚠️ [Custom Weights] Lỗi cập nhật trọng số AI: {e}")
 
 
 def install_compatibility_shims():
