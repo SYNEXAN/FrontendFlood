@@ -23,7 +23,7 @@ import csv
 
 # Ngưỡng an toàn tối thiểu (giờ GPU) trước khi quyết định xoay sang tài khoản mới
 MIN_GPU_HOURS_THRESHOLD = float(os.environ.get("MIN_GPU_HOURS_THRESHOLD", "1.0"))
-FORCE_PUSH = os.environ.get("FORCE_PUSH", "false").lower() in ("true", "1", "yes")
+FORCE_PUSH = os.environ.get("FORCE_PUSH", "false").lower() in ("true", "1", "yes") or "--force" in sys.argv
 KERNEL_SLUG = "synexan-flood-backend-gpu"
 FRONTEND_API_URL = os.environ.get("FRONTEND_API_URL", "https://frontend-flood.vercel.app/api/kernel-log")
 import shutil

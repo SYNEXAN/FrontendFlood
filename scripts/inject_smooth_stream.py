@@ -90,9 +90,14 @@ DEFAULT_CAMERA_PRESETS = {
                 "calib_mode": "3_points",
             },
         ],
-        "roi_points_norm": None,
+        "roi_points_norm": [
+            [0.3203125, 0.17208413001912046],
+            [0.4671875, 0.1089866156787763],
+            [0.9953125, 0.8087954110898662],
+            [0.40625, 0.9961759082217974]
+        ],
         "roi_label": "Làn đường giám sát",
-        "updatedAt": "2026-11-16T09:00:37.945Z",
+        "updatedAt": "2026-11-16T10:19:58.357Z",
     },
     "cam-nga-tu-3/2-thn": {
         "cameraKey": "cam-nga-tu-3/2-thn",
