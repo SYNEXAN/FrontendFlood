@@ -140,11 +140,27 @@ DEFAULT_CAMERA_PRESETS = {
                 "strip_width": 4,
                 "warning_cm": 25.0,
                 "calib_mode": "3_points",
-            }
+            },
+            {
+                "name": "Cột mốc 2",
+                "p_bottom": [611, 288],
+                "p_mid": [625, 207],
+                "p_top": [637, 96],
+                "h_start_cm": 0.0,
+                "h_end_cm": 200.0,
+                "strip_width": 4,
+                "warning_cm": 25.0,
+                "calib_mode": "3_points",
+            },
         ],
-        "roi_points_norm": None,
+        "roi_points_norm": [
+            [0.0031, 0.2740],
+            [0.7655, 0.0663],
+            [0.9926, 0.3380],
+            [0.0798, 0.9938],
+        ],
         "roi_label": "Làn đường giám sát",
-        "updatedAt": "2026-11-16T09:09:41.526Z",
+        "updatedAt": "2026-11-16T12:13:10.913Z",
     },
 }
 
