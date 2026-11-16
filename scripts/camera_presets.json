@@ -1,3 +1,56 @@
 {
-  "_comment": "Tệp lưu trữ cố định tọa độ cột mốc (SCSG-Net) và khung làn đường (4 góc) cho từng Camera trong dự án."
+  "_comment": "Tệp lưu trữ cố định tọa độ cột mốc (SCSG-Net) và khung làn đường (4 góc) cho từng Camera trong dự án.",
+  "cam-tran-viet-chau": {
+    "cameraKey": "cam-tran-viet-chau",
+    "cameraUrl": "rtsp://admin:Mekongpathfinder2026@tvc14738.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+    "cameraName": "Camera Trần Việt Châu",
+    "gauges": [
+      {
+        "name": "Cột mốc 1",
+        "p_bottom": [18, 60],
+        "p_mid": [15, 26],
+        "p_top": [17, 4],
+        "h_start_cm": 0.0,
+        "h_end_cm": 50.0,
+        "strip_width": 4,
+        "warning_cm": 25.0,
+        "calib_mode": "3_points"
+      }
+    ],
+    "roi_points_norm": null,
+    "roi_label": "Làn đường giám sát",
+    "updatedAt": "2026-11-16T08:58:35.545Z"
+  },
+  "cam-vo-van-kiet": {
+    "cameraKey": "cam-vo-van-kiet",
+    "cameraUrl": "rtsp://admin:Mekong2026@mekongpathfinder1pnh.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+    "cameraName": "Camera Võ Văn Kiệt",
+    "gauges": [
+      {
+        "name": "Cột mốc 1",
+        "p_bottom": [474, 250],
+        "p_mid": [483, 187],
+        "p_top": [489, 126],
+        "h_start_cm": 0.0,
+        "h_end_cm": 100.0,
+        "strip_width": 4,
+        "warning_cm": 25.0,
+        "calib_mode": "3_points"
+      },
+      {
+        "name": "Cột mốc 2",
+        "p_bottom": [177, 278],
+        "p_mid": [170, 191],
+        "p_top": [164, 85],
+        "h_start_cm": 0.0,
+        "h_end_cm": 170.0,
+        "strip_width": 4,
+        "warning_cm": 25.0,
+        "calib_mode": "3_points"
+      }
+    ],
+    "roi_points_norm": null,
+    "roi_label": "Làn đường giám sát",
+    "updatedAt": "2026-11-16T09:00:37.945Z"
+  }
 }
