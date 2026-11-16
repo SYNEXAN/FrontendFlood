@@ -271,8 +271,8 @@ app.post('/api/backend-url', async (req, res) => {
         const storedDevice = (storedLog && storedLog.device) || activeBackendDevice || 'gpu';
         const incomingDevice = (device === 'cpu') ? 'cpu' : 'gpu';
 
-        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v9_smart_gpu: Từ chối mọi kernel cũ (v1..v8) và yêu cầu tự tắt
-        if (version !== 'v9_smart_gpu') {
+        // CHỈ CHẤP NHẬN PHIÊN BẢN MỚI NHẤT v10_flood_v20: Từ chối mọi kernel cũ (v1..v8) và yêu cầu tự tắt
+        if (version !== 'v10_flood_v20') {
             return res.json({ success: true, activeBackendUrl: currentUrl, ignoredLegacy: true, superseded: true });
         }
 
@@ -284,8 +284,8 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        // ƯU TIÊN NÂNG CẤP NGAY LẬP TỨC KHI LÊN v9_smart_gpu HOẶC KHI NHẢY TỪ CPU -> GPU!
-        const isUpgradeToV9 = (version === 'v9_smart_gpu' && storedVersion !== 'v9_smart_gpu');
+        // ƯU TIÊN NÂNG CẤP NGAY LẬP TỨC KHI LÊN v10_flood_v20 HOẶC KHI NHẢY TỪ CPU -> GPU!
+        const isUpgradeToV9 = (version === 'v10_flood_v20' && storedVersion !== 'v10_flood_v20');
         const isUpgradeCpuToGpu = (incomingDevice === 'gpu' && storedDevice === 'cpu');
 
         // STICKY SESSION LOCK TRÊN SERVER: Nếu cùng phiên bản, cùng loại thiết bị và đã có 1 URL đang Online (200 OK), giữ cố định URL đó!
@@ -297,7 +297,7 @@ app.post('/api/backend-url', async (req, res) => {
             }
         }
 
-        activeBackendVersion = 'v9_smart_gpu';
+        activeBackendVersion = 'v10_flood_v20';
         activeBackendDevice = incomingDevice;
         await setStoredBackendUrl(cleanUrl);
         await setStoredKernelLog({
@@ -306,7 +306,7 @@ app.post('/api/backend-url', async (req, res) => {
                 ? 'Backend CPU (Dự phòng khi hết GPU) đang hoạt động!'
                 : 'Backend GPU đã sẵn sàng và kết nối thành công!',
             details: cleanUrl,
-            version: 'v9_smart_gpu',
+            version: 'v10_flood_v20',
             device: incomingDevice,
             gpuName: gpuName || (incomingDevice === 'gpu' ? 'Tesla T4' : 'CPU'),
             updatedAt: new Date().toISOString()
@@ -326,7 +326,7 @@ app.post('/api/kernel-log', async (req, res) => {
         message: message || '',
         details: details || prevLog.details || null,
         account: account || prevLog.account || null,
-        version: version || prevLog.version || activeBackendVersion || 'v9_smart_gpu',
+        version: version || prevLog.version || activeBackendVersion || 'v10_flood_v20',
         device: device || prevLog.device || activeBackendDevice || 'gpu',
         gpuName: gpuName || prevLog.gpuName || null,
         updatedAt: timestamp || new Date().toISOString()

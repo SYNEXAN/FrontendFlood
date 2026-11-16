@@ -547,32 +547,62 @@ def install_custom_vehicle_weights():
         print(f"⚠️ [Custom Weights] {e}")
 
 
+_V20_TEMPORAL_STATE = {"cand_prev_mask": None}
+
+
 def install_flood_v20_solution_1_and_5_hooks():
     """
-    Tiêm trực tiếp Giải pháp 1 (Instance-Confidence Mask Weighting) và Giải pháp 5 (Temporal Consistency Gate)
-    vào adaptive_hybrid_depth_engine và fixed_object_gauge ở runtime mà không sửa thư mục backend/.
+    Tiêm trực tiếp Giải pháp 1 (Instance-Confidence Mask Weighting) tại đầu ra YOLO.predict
+    và Giải pháp 5 (Temporal Consistency Gate) tại refine_flood_segmentation_mask
+    mà giữ nguyên 100% hàm process_single_frame_hybrid gốc của backend/.
     """
     try:
         import cv2
         import torch
         import numpy as np
 
-        def combine_instance_weighted_mask(f_res):
-            if f_res is None or getattr(f_res, "masks", None) is None or len(f_res.masks.data) == 0:
-                return None
-            masks_t = f_res.masks.data.float()
-            boxes = getattr(f_res, "boxes", None)
-            if boxes is not None and getattr(boxes, "conf", None) is not None and len(boxes.conf) == len(masks_t):
-                confs_t = boxes.conf.float().view(-1, 1, 1)
-                weighted = masks_t * confs_t
-            else:
-                weighted = masks_t
-            return torch.amax(weighted, dim=0).cpu().numpy()
+        # 1. Hook Giải pháp 1 ngay trên tensor đầu ra của YOLO.predict:
+        # Nhân từng mặt nạ masks.data[i] với boxes.conf[i] để torch.amax(f_res.masks.data, dim=0)
+        # tự động thu được xác suất thực của từng instance ở mọi nơi!
+        try:
+            from ultralytics import YOLO
+            if not getattr(YOLO, "_synexan_v20_conf_hooked", False):
+                orig_predict = YOLO.predict
 
+                @functools.wraps(orig_predict)
+                def weighted_predict(self, *args, **kwargs):
+                    results = orig_predict(self, *args, **kwargs)
+                    try:
+                        if results and isinstance(results, (list, tuple)):
+                            for r in results:
+                                masks = getattr(r, "masks", None)
+                                boxes = getattr(r, "boxes", None)
+                                if (
+                                    masks is not None
+                                    and getattr(masks, "data", None) is not None
+                                    and len(masks.data) > 0
+                                    and boxes is not None
+                                    and getattr(boxes, "conf", None) is not None
+                                    and len(boxes.conf) == len(masks.data)
+                                ):
+                                    confs_t = boxes.conf.to(masks.data.device, dtype=masks.data.dtype).view(-1, 1, 1)
+                                    masks.data = masks.data * confs_t
+                    except Exception:
+                        pass
+                    return results
+
+                YOLO.predict = weighted_predict
+                YOLO._synexan_v20_conf_hooked = True
+        except Exception as ye:
+            print(f"⚠️ [YOLO Predict Hook] {ye}")
+
+        # 2. Hook Giải pháp 1 (lọc đốm phụ rời rạc conf thấp) & Giải pháp 5 (Temporal Consistency Gate)
+        # vào refine_flood_segmentation_mask với chữ ký giống hệt 100% hàm gốc trong backend/
         def v20_refine_flood_segmentation_mask(
-            raw_mask, h, w, conf_thresh=0.25, prev_mask=None, frame_bgr=None, cand_prev_mask=None
+            raw_mask, h, w, conf_thresh=0.25, prev_mask=None, frame_bgr=None
         ):
             if raw_mask is None:
+                _V20_TEMPORAL_STATE["cand_prev_mask"] = None
                 return np.zeros((h, w), dtype=np.float32)
             if raw_mask.shape[:2] != (h, w):
                 mask = cv2.resize(raw_mask, (w, h), interpolation=cv2.INTER_LINEAR)
@@ -583,6 +613,7 @@ def install_flood_v20_solution_1_and_5_hooks():
             t_low = max(t_base * 0.85, 0.18)
             candidates = (mask >= t_low).astype(np.uint8)
             if not np.any(candidates > 0):
+                _V20_TEMPORAL_STATE["cand_prev_mask"] = np.zeros((h, w), dtype=np.float32)
                 return np.zeros((h, w), dtype=np.float32)
 
             max_frame_conf = float(np.max(mask))
@@ -593,6 +624,7 @@ def install_flood_v20_solution_1_and_5_hooks():
             num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(candidates, connectivity=8)
             clean_bin = np.zeros_like(candidates, dtype=np.uint8)
 
+            cand_prev_mask = _V20_TEMPORAL_STATE.get("cand_prev_mask")
             has_temporal_context = (prev_mask is not None and prev_mask.shape == (h, w))
             has_cand_context = (cand_prev_mask is not None and cand_prev_mask.shape == (h, w))
 
@@ -614,6 +646,8 @@ def install_flood_v20_solution_1_and_5_hooks():
                         continue
                 clean_bin[comp_region] = 1
 
+            _V20_TEMPORAL_STATE["cand_prev_mask"] = (mask >= t_base).astype(np.float32)
+
             if not np.any(clean_bin > 0):
                 return np.zeros((h, w), dtype=np.float32)
 
@@ -629,107 +663,11 @@ def install_flood_v20_solution_1_and_5_hooks():
                     mod = None
             if mod is not None and not getattr(mod, "_synexan_v20_patched", False):
                 mod.refine_flood_segmentation_mask = v20_refine_flood_segmentation_mask
-                mod.combine_instance_weighted_mask = combine_instance_weighted_mask
-
-                def patched_process_single_frame_hybrid(
-                    frame_bgr, gauge, arbiter, flood_model, vehicle_model=None,
-                    flood_conf=0.25, veh_conf=0.35, mode="Cột mốc", is_streaming=False
-                ):
-                    import pandas as pd
-                    from fixed_object_gauge import process_single_frame_gauge
-                    h, w = frame_bgr.shape[:2]
-                    infer_imgsz = 640 if is_streaming else 800
-                    infer_retina = False if is_streaming else True
-                    flood_mask = np.zeros((h, w), dtype=np.float32)
-                    if flood_model is not None:
-                        try:
-                            f_res = flood_model.predict(
-                                frame_bgr,
-                                conf=float(flood_conf),
-                                iou=0.55,
-                                imgsz=infer_imgsz,
-                                retina_masks=infer_retina,
-                                device=getattr(mod, "INFER_DEVICE", 0),
-                                verbose=False
-                            )[0]
-                            prev_m = getattr(arbiter, "prev_flood_mask", None) if arbiter is not None else None
-                            cand_prev_m = getattr(arbiter, "candidate_flood_mask", None) if arbiter is not None else None
-                            m_np = combine_instance_weighted_mask(f_res)
-                            if m_np is not None:
-                                raw_resized = cv2.resize(m_np, (w, h), interpolation=cv2.INTER_LINEAR) if m_np.shape[:2] != (h, w) else m_np
-                                flood_mask = v20_refine_flood_segmentation_mask(
-                                    raw_resized, h, w, conf_thresh=float(flood_conf),
-                                    prev_mask=prev_m, frame_bgr=frame_bgr, cand_prev_mask=cand_prev_m
-                                )
-                                if arbiter is not None:
-                                    arbiter.candidate_flood_mask = (raw_resized >= float(flood_conf)).astype(np.float32)
-                            else:
-                                if arbiter is not None:
-                                    arbiter.candidate_flood_mask = np.zeros((h, w), dtype=np.float32)
-                                if prev_m is not None and prev_m.shape == (h, w):
-                                    flood_mask = np.where(prev_m * 0.35 >= float(flood_conf), prev_m * 0.35, 0.0).astype(np.float32)
-                            if arbiter is not None:
-                                arbiter.prev_flood_mask = flood_mask
-                        except Exception as e:
-                            print(f"⚠️ Lỗi suy luận Flood V20: {e}")
-
-                    g_measured_cm = None
-                    g_status = "UNCONFIGURED"
-                    g_rule_desc = ""
-                    active_gauge = gauge
-                    if active_gauge is not None:
-                        if hasattr(active_gauge, "measure_all") and hasattr(active_gauge, "fuse_water_level"):
-                            try:
-                                all_res = active_gauge.measure_all(water_mask=flood_mask, frame_bgr=frame_bgr)
-                                fusion_res = active_gauge.fuse_water_level(all_res)
-                                g_measured_cm = fusion_res["fused_z"] if fusion_res["status"] != "NO_FLOOD" else 0.0
-                                g_status = fusion_res["status"]
-                                g_rule_desc = fusion_res.get("rule_desc", "")
-                            except Exception as e:
-                                print(f"⚠️ Lỗi đo mạng lưới đa mốc: {e}")
-                        elif getattr(active_gauge, "is_configured", False):
-                            try:
-                                _, g_measured_cm, _, g_status, _ = process_single_frame_gauge(
-                                    frame_bgr, active_gauge, flood_model, flood_conf=flood_conf
-                                )
-                            except Exception as e:
-                                print(f"⚠️ Lỗi đo mốc thủy chuẩn: {e}")
-
-                    report = arbiter.arbitrate([], virtual_gauge=active_gauge, gauge_depth_cm=g_measured_cm)
-                    hud_bgr = mod.render_hybrid_xray_hud(frame_bgr, [], active_gauge, report, flood_mask=flood_mask)
-                    hud_rgb = cv2.cvtColor(hud_bgr, cv2.COLOR_BGR2RGB)
-
-                    alert_tag = report.alert_title.split(":")[1].strip() if ":" in report.alert_title else report.alert_title
-                    if active_gauge is not None:
-                        if hasattr(active_gauge, "gauges"):
-                            cfg_count = sum(1 for g in active_gauge.gauges.values() if g.is_configured)
-                            if cfg_count > 0 and g_measured_cm is not None:
-                                gauge_desc = g_rule_desc if g_rule_desc else f"Mạng lưới {cfg_count} mốc SCSG-Net: {g_measured_cm:.1f} cm ({g_status})"
-                            else:
-                                gauge_desc = "Chưa thiết lập mốc nào"
-                        elif getattr(active_gauge, "is_configured", False) and g_measured_cm is not None:
-                            gauge_desc = f"Cột mốc: {g_measured_cm:.1f}cm"
-                        else:
-                            gauge_desc = "Chưa thiết lập mốc"
-                    else:
-                        gauge_desc = "Chưa thiết lập mốc"
-
-                    df = pd.DataFrame([{
-                        "Nguồn Đo Lường": report.source,
-                        "Độ Sâu Ngập": f"{report.master_depth_cm:.1f} cm",
-                        "Cấp Báo Động": f"Level {report.alert_level}: {alert_tag}",
-                        "Độ Tin Cậy": f"{report.confidence_pct}%",
-                        "Thủy Chuẩn Mốc": gauge_desc,
-                    }])
-                    alarm_html = mod.format_hybrid_alarm_html(report)
-                    return hud_rgb, df, alarm_html, report
-
-                mod.process_single_frame_hybrid = patched_process_single_frame_hybrid
                 mod._synexan_v20_patched = True
                 for m_obj in list(sys.modules.values()):
-                    if m_obj is not None and hasattr(m_obj, "process_single_frame_hybrid"):
+                    if m_obj is not None and hasattr(m_obj, "refine_flood_segmentation_mask"):
                         try:
-                            setattr(m_obj, "process_single_frame_hybrid", patched_process_single_frame_hybrid)
+                            setattr(m_obj, "refine_flood_segmentation_mask", v20_refine_flood_segmentation_mask)
                         except Exception:
                             pass
                 print("✨ [Flood V20 Filter] Đã kích hoạt Giải pháp 1 (Instance-Confidence Weighting) + Giải pháp 5 (Temporal Consistency Gate)!")
@@ -864,7 +802,7 @@ def inject_patch():
 
 
 def start_v9_webhook_reporter():
-    """Đảm bảo mọi kernel đều đồng bộ version v9_smart_gpu kèm nhãn device (gpu/cpu) về Vercel."""
+    """Đảm bảo mọi kernel đều đồng bộ version v10_flood_v20 kèm nhãn device (gpu/cpu) về Vercel."""
     try:
         import subprocess
         subprocess.run(["pkill", "-9", "-f", "synexan_v5_reporter"], check=False, stderr=subprocess.DEVNULL)
@@ -894,7 +832,7 @@ def start_v9_webhook_reporter():
             "    if url:\n"
             "        for ep in webhooks:\n"
             "            try:\n"
-            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v9_smart_gpu', 'device': dev_type}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
+            "                req = urllib.request.Request(ep, data=json.dumps({'url': url, 'version': 'v10_flood_v20', 'device': dev_type}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'})\n"
             "                with urllib.request.urlopen(req, timeout=8) as r:\n"
             "                    rj = json.loads(r.read().decode('utf-8', errors='ignore'))\n"
             "                    if rj.get('superseded') is True:\n"

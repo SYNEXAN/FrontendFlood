@@ -872,17 +872,17 @@
     // KIỂM TRA ONLINE BACKEND API MODEL (STICKY SESSION LOCK - KHÔNG ĐỔI URL KHI ĐANG SỐNG)
     // ========================================================================
     async function checkBackendOnline() {
-      // Nếu trình duyệt đang giữ phiên cũ chưa phải v9_smart_gpu hoặc đang ở chế độ CPU dự phòng, kiểm tra xem Server đã có GPU v9_smart_gpu chưa
-      if (loadedFrameUrl && (window.loadedBackendVersion !== "v9_smart_gpu" || window.loadedBackendDevice === "cpu")) {
+      // Nếu trình duyệt đang giữ phiên cũ chưa phải v10_flood_v20 hoặc đang ở chế độ CPU dự phòng, kiểm tra xem Server đã có GPU v10_flood_v20 chưa
+      if (loadedFrameUrl && (window.loadedBackendVersion !== "v10_flood_v20" || window.loadedBackendDevice === "cpu")) {
         try {
           const upRes = await fetch("/api/config", { cache: "no-store" });
           if (upRes.ok) {
             const upCfg = await upRes.json();
             const kLog = (upCfg && upCfg.kernelLog) || {};
-            if (kLog.version === "v9_smart_gpu" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
+            if (kLog.version === "v10_flood_v20" && upCfg.defaultBackendUrl && upCfg.defaultBackendUrl.startsWith("http")) {
               const newDev = kLog.device || "gpu";
-              const shouldSwitch = (window.loadedBackendVersion !== "v9_smart_gpu") || (window.loadedBackendDevice === "cpu" && newDev === "gpu");
-              window.loadedBackendVersion = "v9_smart_gpu";
+              const shouldSwitch = (window.loadedBackendVersion !== "v10_flood_v20") || (window.loadedBackendDevice === "cpu" && newDev === "gpu");
+              window.loadedBackendVersion = "v10_flood_v20";
               window.loadedBackendDevice = newDev;
               if (shouldSwitch && !isFrameLoadedWith(upCfg.defaultBackendUrl)) {
                 DEFAULT_CONFIG.backendUrl = upCfg.defaultBackendUrl;

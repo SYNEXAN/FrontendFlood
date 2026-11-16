@@ -63,7 +63,7 @@ def notify_kernel_log(status, message, details=None):
         "status": status,
         "message": message,
         "details": details,
-        "version": "v9_smart_gpu",
+        "version": "v10_flood_v20",
         "device": COMPUTE_DEVICE_TYPE,
         "gpuName": COMPUTE_DEVICE_NAME
     }
@@ -97,7 +97,7 @@ def push_backend_url_to_vercel(public_url, verbose=True):
     for endpoint in TARGET_WEBHOOKS:
         payload = json.dumps({
             "url": public_url,
-            "version": "v9_smart_gpu",
+            "version": "v10_flood_v20",
             "device": COMPUTE_DEVICE_TYPE,
             "gpuName": COMPUTE_DEVICE_NAME
         }).encode("utf-8")
