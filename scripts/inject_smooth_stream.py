@@ -116,9 +116,14 @@ DEFAULT_CAMERA_PRESETS = {
                 "calib_mode": "3_points",
             }
         ],
-        "roi_points_norm": None,
+        "roi_points_norm": [
+            [0.5350, 0.4148],
+            [0.9109, 0.5317],
+            [0.3529, 0.9954],
+            [0.0046, 0.7115],
+        ],
         "roi_label": "Làn đường giám sát",
-        "updatedAt": "2026-11-16T09:07:14.335Z",
+        "updatedAt": "2026-11-16T10:40:33.526Z",
     },
     "cam-tran-hoang-na": {
         "cameraKey": "cam-tran-hoang-na",
