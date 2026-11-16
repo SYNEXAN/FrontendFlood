@@ -7,9 +7,18 @@
     "gauges": [
       {
         "name": "Cột mốc 1",
-        "p_bottom": [18, 60],
-        "p_mid": [15, 26],
-        "p_top": [17, 4],
+        "p_bottom": [
+          18,
+          60
+        ],
+        "p_mid": [
+          15,
+          26
+        ],
+        "p_top": [
+          17,
+          4
+        ],
         "h_start_cm": 0.0,
         "h_end_cm": 50.0,
         "strip_width": 4,
@@ -17,9 +26,26 @@
         "calib_mode": "3_points"
       }
     ],
-    "roi_points_norm": null,
+    "roi_points_norm": [
+      [
+        0.0017,
+        0.1333
+      ],
+      [
+        0.6173,
+        0.0187
+      ],
+      [
+        0.8197,
+        0.1125
+      ],
+      [
+        0.3367,
+        0.9958
+      ]
+    ],
     "roi_label": "Làn đường giám sát",
-    "updatedAt": "2026-11-16T08:58:35.545Z"
+    "updatedAt": "2026-11-16T09:34:21.000Z"
   },
   "cam-vo-van-kiet": {
     "cameraKey": "cam-vo-van-kiet",
@@ -28,9 +54,18 @@
     "gauges": [
       {
         "name": "Cột mốc 1",
-        "p_bottom": [474, 250],
-        "p_mid": [483, 187],
-        "p_top": [489, 126],
+        "p_bottom": [
+          474,
+          250
+        ],
+        "p_mid": [
+          483,
+          187
+        ],
+        "p_top": [
+          489,
+          126
+        ],
         "h_start_cm": 0.0,
         "h_end_cm": 100.0,
         "strip_width": 4,
@@ -39,9 +74,18 @@
       },
       {
         "name": "Cột mốc 2",
-        "p_bottom": [177, 278],
-        "p_mid": [170, 191],
-        "p_top": [164, 85],
+        "p_bottom": [
+          177,
+          278
+        ],
+        "p_mid": [
+          170,
+          191
+        ],
+        "p_top": [
+          164,
+          85
+        ],
         "h_start_cm": 0.0,
         "h_end_cm": 170.0,
         "strip_width": 4,
@@ -60,9 +104,18 @@
     "gauges": [
       {
         "name": "Cột mốc 1",
-        "p_bottom": [504, 335],
-        "p_mid": [505, 261],
-        "p_top": [501, 115],
+        "p_bottom": [
+          504,
+          335
+        ],
+        "p_mid": [
+          505,
+          261
+        ],
+        "p_top": [
+          501,
+          115
+        ],
         "h_start_cm": 0.0,
         "h_end_cm": 500.0,
         "strip_width": 4,
@@ -81,9 +134,18 @@
     "gauges": [
       {
         "name": "Cột mốc 1",
-        "p_bottom": [269, 98],
-        "p_mid": [272, 79],
-        "p_top": [273, 57],
+        "p_bottom": [
+          269,
+          98
+        ],
+        "p_mid": [
+          272,
+          79
+        ],
+        "p_top": [
+          273,
+          57
+        ],
         "h_start_cm": 0.0,
         "h_end_cm": 50.0,
         "strip_width": 4,

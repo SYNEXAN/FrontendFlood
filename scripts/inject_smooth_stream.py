@@ -53,9 +53,14 @@ DEFAULT_CAMERA_PRESETS = {
                 "calib_mode": "3_points",
             }
         ],
-        "roi_points_norm": None,
+        "roi_points_norm": [
+            [0.0017, 0.1333],
+            [0.6173, 0.0187],
+            [0.8197, 0.1125],
+            [0.3367, 0.9958]
+        ],
         "roi_label": "Làn đường giám sát",
-        "updatedAt": "2026-11-16T08:58:35.545Z",
+        "updatedAt": "2026-11-16T09:34:21.000Z",
     },
     "cam-vo-van-kiet": {
         "cameraKey": "cam-vo-van-kiet",
