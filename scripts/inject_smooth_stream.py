@@ -474,23 +474,15 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
                     pass
 
     depth_str = f"{depth_val:.1f} cm"
-    flood_level = "AN TOÀN"
-    flood_color = "#22c55e"
-    if depth_val >= 70.0:
-        flood_level = "CỰC KỲ NGUY HIỂM (CẤM ĐƯỜNG)"
-        flood_color = "#dc2626"
-    elif depth_val >= 45.0:
-        flood_level = "BÁO ĐỘNG CẤP 4 (NGẬP KHẨN CẤP)"
-        flood_color = "#a855f7"
-    elif depth_val >= 25.0:
-        flood_level = "BÁO ĐỘNG CẤP 3 (NGẬP SÂU NGUY HIỂM)"
+    if depth_val >= 25.0:
+        flood_level = "NGUY HIỂM"
         flood_color = "#ef4444"
-    elif depth_val >= 15.0:
-        flood_level = "BÁO ĐỘNG CẤP 2 (NGẬP TRUNG BÌNH)"
-        flood_color = "#f97316"
     elif depth_val >= 5.0:
-        flood_level = "BÁO ĐỘNG CẤP 1 (NGẬP NHẸ)"
+        flood_level = "CẢNH BÁO"
         flood_color = "#eab308"
+    else:
+        flood_level = "AN TOÀN"
+        flood_color = "#22c55e"
 
     traffic_status_clean = status_label.strip()
     traffic_status_badge = traffic_status_clean.upper()
@@ -506,15 +498,15 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
     alert_html = f"""
     <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:12px; padding:14px 18px; margin-bottom:12px;'>
         <div style='display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:10px;'>
-            <span style='font-size:1.05rem; font-weight:700; color:#38bdf8; min-width:115px;'>Mực Nước:</span>
-            <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:8px;'>{depth_str}</span>
-            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {flood_color}55; color:{flood_color};'>{flood_level}</span>
+            <span style='font-size:1.05rem; font-weight:700; color:#38bdf8; min-width:115px; white-space:nowrap;'>Mực Nước:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:8px; white-space:nowrap;'>{depth_str}</span>
+            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {flood_color}55; color:{flood_color}; white-space:nowrap;'>{flood_level}</span>
         </div>
         <div style='display:flex; align-items:center; flex-wrap:wrap; gap:10px;'>
-            <span style='font-size:1.05rem; font-weight:700; color:#e2e8f0; min-width:115px;'>Giao Thông:</span>
-            <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:8px;'>{veh_count} xe</span>
-            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {traffic_color}55; color:{traffic_color}; margin-right:8px;'>{traffic_status_badge}</span>
-            <span style='font-size:0.92rem; color:#94a3b8;'>(Vận tốc TB: <b style="color:#e2e8f0; font-weight:700;">{avg_speed:.1f} km/h</b>)</span>
+            <span style='font-size:1.05rem; font-weight:700; color:#e2e8f0; min-width:115px; white-space:nowrap;'>Giao Thông:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:8px; white-space:nowrap;'>{veh_count} xe</span>
+            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {traffic_color}55; color:{traffic_color}; margin-right:8px; white-space:nowrap;'>{traffic_status_badge}</span>
+            <span style='font-size:0.92rem; color:#94a3b8; white-space:nowrap;'>(Vận tốc TB: <b style="color:#e2e8f0; font-weight:700;">{avg_speed:.1f} km/h</b>)</span>
         </div>
     </div>
     """
