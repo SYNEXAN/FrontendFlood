@@ -476,28 +476,45 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
     depth_str = f"{depth_val:.1f} cm"
     flood_level = "AN TOÀN"
     flood_color = "#22c55e"
-    if depth_val >= 50:
-        flood_level = "CỰC KỲ NGUY HIỂM"
+    if depth_val >= 70.0:
+        flood_level = "CỰC KỲ NGUY HIỂM (CẤM ĐƯỜNG)"
+        flood_color = "#dc2626"
+    elif depth_val >= 45.0:
+        flood_level = "BÁO ĐỘNG CẤP 4 (NGẬP KHẨN CẤP)"
+        flood_color = "#a855f7"
+    elif depth_val >= 25.0:
+        flood_level = "BÁO ĐỘNG CẤP 3 (NGẬP SÂU NGUY HIỂM)"
         flood_color = "#ef4444"
-    elif depth_val >= 30:
-        flood_level = "BÁO ĐỘNG CẤP 2 (NGẬP SÂU)"
+    elif depth_val >= 15.0:
+        flood_level = "BÁO ĐỘNG CẤP 2 (NGẬP TRUNG BÌNH)"
         flood_color = "#f97316"
-    elif depth_val >= 15:
+    elif depth_val >= 5.0:
         flood_level = "BÁO ĐỘNG CẤP 1 (NGẬP NHẸ)"
         flood_color = "#eab308"
 
-    # Đúng 100% bố cục và màu sắc giao diện gốc, loại bỏ emoji 🌊 và 🚗
+    traffic_status_clean = status_label.strip()
+    traffic_status_badge = traffic_status_clean.upper()
+    traffic_color = "#22c55e"
+    if "ùn tắc" in traffic_status_clean.lower() or "kẹt xe" in traffic_status_clean.lower():
+        traffic_color = "#ef4444"
+    elif "chậm" in traffic_status_clean.lower() or "đông" in traffic_status_clean.lower():
+        traffic_color = "#eab308"
+    elif "chưa đủ" in traffic_status_clean.lower() or "đang nạp" in traffic_status_clean.lower():
+        traffic_color = "#94a3b8"
+
+    # Chuẩn hóa bố cục Card HUD 2 dòng: Trạng thái Giao Thông hiển thị to & nổi bật đồng bộ dòng Mực Nước
     alert_html = f"""
     <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:12px; padding:14px 18px; margin-bottom:12px;'>
-        <div style='display:flex; align-items:center; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:10px;'>
-            <span style='font-size:1.1rem; font-weight:700; color:#38bdf8; min-width:115px;'>Mực Nước:</span>
-            <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:12px;'>{depth_str}</span>
-            <span style='font-size:0.88rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); color:{flood_color};'>{flood_level}</span>
+        <div style='display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:10px;'>
+            <span style='font-size:1.05rem; font-weight:700; color:#38bdf8; min-width:115px;'>Mực Nước:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:8px;'>{depth_str}</span>
+            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {flood_color}55; color:{flood_color};'>{flood_level}</span>
         </div>
-        <div style='display:flex; align-items:center;'>
-            <span style='font-size:1.1rem; font-weight:700; color:#e2e8f0; min-width:115px;'>Giao Thông:</span>
-            <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:12px;'>{veh_count} xe</span>
-            <span style='font-size:0.9rem; color:#94a3b8;'>({status_label} - Vận tốc TB: <b style="color:#e2e8f0;">{avg_speed:.1f} km/h</b>)</span>
+        <div style='display:flex; align-items:center; flex-wrap:wrap; gap:10px;'>
+            <span style='font-size:1.05rem; font-weight:700; color:#e2e8f0; min-width:115px;'>Giao Thông:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:8px;'>{veh_count} xe</span>
+            <span style='font-size:0.85rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); border:1px solid {traffic_color}55; color:{traffic_color}; margin-right:8px;'>{traffic_status_badge}</span>
+            <span style='font-size:0.92rem; color:#94a3b8;'>(Vận tốc TB: <b style="color:#e2e8f0; font-weight:700;">{avg_speed:.1f} km/h</b>)</span>
         </div>
     </div>
     """
@@ -506,7 +523,7 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
         ["Mực Nước Đo Được", depth_str],
         ["Cấp Độ Ngập", flood_level],
         ["Tổng Phương Tiện", f"{veh_count} xe"],
-        ["Tình Trạng Làn Đường", status_label],
+        ["Tình Trạng Làn Đường", traffic_status_badge],
         ["Tốc Độ Trung Bình", f"{avg_speed:.1f} km/h"]
     ]
     clean_df = pd.DataFrame(table_rows, columns=["Chỉ Số Giám Sát", "Giá Trị"])
