@@ -800,29 +800,20 @@ def sanitize_blocks_in_memory(blocks_instance):
         for b in blocks_dict.values():
             elem_id = getattr(b, "elem_id", None)
             if (
-                elem_id in (
-                    "tab5_setup_status", "traffic_setup_status", "fusion_setup_status",
-                    "tab_item_fusion_gauge", "tab_item_fusion_lane",
-                    "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
-                )
+                elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status")
                 or (isinstance(elem_id, str) and "setup_status" in elem_id)
             ):
                 b.value = ""
                 b.visible = False
 
-            lbl = getattr(b, "label", None)
-            if isinstance(lbl, str) and any(k in lbl for k in (
-                "Khung hình video", "Thiết Lập Cột Mốc", "Thiết Lập Khung Làn Đường",
-                "Thông tin cột mốc", "Tên cột mốc", "Điểm đầu", "Điểm cuối",
-                "Bề rộng cột mốc", "Cột mốc đã lưu", "Nhãn khung làn đường"
-            )):
-                b.visible = False
-
-            val = getattr(b, "value", None)
-            if isinstance(val, str) and val in (
-                "Lưu", "Hủy", "Xóa tất cả mốc", "Xóa cột mốc", "Xóa Khung Làn Đường"
+            # Đảm bảo các tab và công cụ hiệu chuẩn, thanh trượt hiển thị đầy đủ
+            if elem_id in (
+                "tab_item_fusion_gauge", "tab_item_fusion_lane",
+                "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
             ):
-                b.visible = False
+                b.visible = True
+
+            lbl = getattr(b, "label", None)
             if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
                 b.value = getattr(b, "minimum", 4) or 4
 
@@ -872,30 +863,20 @@ def sanitize_config_dict_py(cfg):
 
             elem_id = p.get("elem_id")
             if (
-                elem_id in (
-                    "tab5_setup_status", "traffic_setup_status", "fusion_setup_status",
-                    "tab_item_fusion_gauge", "tab_item_fusion_lane",
-                    "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
-                )
+                elem_id in ("tab5_setup_status", "traffic_setup_status", "fusion_setup_status")
                 or (isinstance(elem_id, str) and "setup_status" in elem_id)
             ):
                 p["value"] = ""
                 p["visible"] = False
 
-            lbl = p.get("label")
-            if isinstance(lbl, str) and any(k in lbl for k in (
-                "Khung hình video", "Thiết Lập Cột Mốc", "Thiết Lập Khung Làn Đường",
-                "Thông tin cột mốc", "Tên cột mốc", "Điểm đầu", "Điểm cuối",
-                "Bề rộng cột mốc", "Cột mốc đã lưu", "Nhãn khung làn đường"
-            )):
-                p["visible"] = False
-
-            val = p.get("value")
-            if isinstance(val, str) and val in (
-                "Lưu", "Hủy", "Xóa tất cả mốc", "Xóa cột mốc", "Xóa Khung Làn Đường"
+            # Đảm bảo các tab và công cụ hiệu chuẩn, thanh trượt hiển thị đầy đủ
+            if elem_id in (
+                "tab_item_fusion_gauge", "tab_item_fusion_lane",
+                "fusion_seek_slider", "tab5_seek_slider", "traffic_seek_slider"
             ):
-                p["visible"] = False
+                p["visible"] = True
 
+            lbl = p.get("label")
             if isinstance(lbl, str) and "Bề rộng cột mốc" in lbl:
                 p["value"] = p.get("minimum", 4)
 
