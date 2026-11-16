@@ -324,6 +324,12 @@ def find_active_backend(username):
                         lower_st = st_out.lower()
 
                     if "kernelworkerstatus.running" in lower_st or '"running"' in lower_st:
+                        age = get_slug_age_seconds(kernel_ref)
+                        if age is not None and age > 300:
+                            print(f"   🛑 Phiên RUNNING '{kernel_ref}' đã tạo cách đây {int(age // 60)} phút nhưng mất kết nối Tunnel. Đang xóa ngay để giải phóng slot GPU...")
+                            subprocess.run([*KAGGLE_CMD, "kernels", "delete", "-y", kernel_ref], capture_output=True, text=True, timeout=12)
+                            time.sleep(2.5)
+                            continue
                         return kernel_ref, "RUNNING", st_out
                     elif "kernelworkerstatus.queued" in lower_st or '"queued"' in lower_st:
                         # Kiểm tra xem phiên QUEUED này có phải zombie queue (cũ > 3 phút)
