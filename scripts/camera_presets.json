@@ -52,5 +52,26 @@
     "roi_points_norm": null,
     "roi_label": "Làn đường giám sát",
     "updatedAt": "2026-11-16T09:00:37.945Z"
+  },
+  "cam-tran-hoang-na": {
+    "cameraKey": "cam-tran-hoang-na",
+    "cameraUrl": "rtsp://admin:Mekong2026@mekongpathfinder01thn.smartddns.tv:554/cam/realmonitor?channel=1&subtype=1",
+    "cameraName": "Camera Trần Hoàng Na",
+    "gauges": [
+      {
+        "name": "Cột mốc 1",
+        "p_bottom": [269, 98],
+        "p_mid": [272, 79],
+        "p_top": [273, 57],
+        "h_start_cm": 0.0,
+        "h_end_cm": 50.0,
+        "strip_width": 4,
+        "warning_cm": 25.0,
+        "calib_mode": "3_points"
+      }
+    ],
+    "roi_points_norm": null,
+    "roi_label": "Làn đường giám sát",
+    "updatedAt": "2026-11-16T09:09:41.526Z"
   }
 }
