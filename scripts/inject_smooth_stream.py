@@ -20,6 +20,9 @@ import threading
 import functools
 import urllib.request
 
+# Thiết lập timeout và giao thức TCP cho RTSP trong OpenCV để chống nghẽn / treo luồng
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
+
 EMOJI_PATTERN = re.compile(
     r"[\U0001F300-\U0001FAFF\u2600-\u27BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\uFE0F\u200D"
     r"🌊⚡🚗📁🖼️🚀⏹⚙️🗑🎯🚦📋📍💡📏🔄✅❌⚠️🛑🎉⏳🔎📌➔👉🎬📷📐💾↩️⚖️📺]+",
@@ -126,7 +129,30 @@ def save_camera_preset_everywhere(cam_key, cam_url, cam_name, gauges_list, roi_p
 
 
 def resolve_canonical_camera_info(raw_url_or_none, state_data, main_mod):
-    """Xác định định danh chuẩn (id, url, name) của Camera đang thao tác."""
+    """Xác định định danh chuẩn (id, url, name) của Camera đang thao tác.
+    Luôn ưu tiên raw_url_or_none nếu được truyền vào, tuyệt đối không bị đè bởi state cũ."""
+    candidate_url = str(raw_url_or_none or "").strip()
+    cameras = getattr(main_mod, "CANTHO_CAMERAS", []) or []
+
+    # Ưu tiên 1: URL/ID được truyền vào trực tiếp từ dropdown hoặc nút bấm
+    if candidate_url:
+        for c in cameras:
+            c_url = str(c.get("url", "")).strip()
+            c_url_sub1 = c_url.replace("subtype=0", "subtype=1")
+            c_url_sub0 = c_url.replace("subtype=1", "subtype=0")
+            c_id = str(c.get("id", "")).strip()
+            if candidate_url in (c_url, c_url_sub1, c_url_sub0, c_id):
+                return c["id"], c["url"], c.get("name", c["id"])
+        # Kiểm tra theo tên camera nếu chuỗi truyền vào là tên hoặc chứa tên
+        cand_lower = candidate_url.lower()
+        for c in cameras:
+            c_name = str(c.get("name", "")).strip().lower()
+            c_short = str(c.get("short_loc", "")).strip().lower()
+            if (c_name and c_name in cand_lower) or (c_short and c_short in cand_lower):
+                return c["id"], c["url"], c.get("name", c["id"])
+        return candidate_url, candidate_url, candidate_url
+
+    # Ưu tiên 2: Lấy từ state_data hiện tại (chỉ khi raw_url_or_none rỗng/None)
     if isinstance(state_data, dict):
         if state_data.get("canonical_cam_key"):
             return (
@@ -134,19 +160,12 @@ def resolve_canonical_camera_info(raw_url_or_none, state_data, main_mod):
                 state_data.get("canonical_cam_url") or state_data["canonical_cam_key"],
                 state_data.get("canonical_cam_name") or "Camera",
             )
-
-    candidate_url = str(raw_url_or_none or "").strip()
-    if not candidate_url and isinstance(state_data, dict):
-        candidate_url = str(state_data.get("cam_source") or "").strip()
-
-    cameras = getattr(main_mod, "CANTHO_CAMERAS", []) or []
-    for c in cameras:
-        c_url = str(c.get("url", "")).strip()
-        c_url_sub1 = c_url.replace("subtype=0", "subtype=1")
-        if candidate_url and (candidate_url == c_url or candidate_url == c_url_sub1 or candidate_url == c.get("id")):
-            return c["id"], c_url, c.get("name", c["id"])
-
-    if isinstance(state_data, dict):
+        cam_src = str(state_data.get("cam_source") or "").strip()
+        if cam_src:
+            for c in cameras:
+                c_url = str(c.get("url", "")).strip()
+                if cam_src in (c_url, c_url.replace("subtype=0", "subtype=1"), c_url.replace("subtype=1", "subtype=0"), c.get("id")):
+                    return c["id"], c["url"], c.get("name", c["id"])
         cam_title = str(state_data.get("cam_title") or "")
         for c in cameras:
             if c.get("name") and c["name"] in cam_title:
@@ -154,9 +173,6 @@ def resolve_canonical_camera_info(raw_url_or_none, state_data, main_mod):
 
     if LAST_ACTIVE_CAMERA.get("key") and (not isinstance(state_data, dict) or state_data.get("source_type") == "camera_stream"):
         return LAST_ACTIVE_CAMERA["key"], LAST_ACTIVE_CAMERA["url"], LAST_ACTIVE_CAMERA["name"]
-
-    if candidate_url:
-        return candidate_url, candidate_url, candidate_url
 
     if isinstance(state_data, dict) and state_data.get("source_type") == "video":
         vpath = str(state_data.get("video_path") or "")
@@ -271,6 +287,164 @@ def restore_presets_for_camera(cam_key, cam_url, base_frame, main_mod):
     return restored_gauges, restored_roi
 
 
+def clean_dataframe_emojis(df):
+    """Làm sạch 100% icon và emoji trong DataFrame (cả tiêu đề cột và giá trị ô)."""
+    import pandas as pd
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    try:
+        new_cols = [clean_text_py(str(c)) for c in df.columns]
+        new_df = df.copy()
+        new_df.columns = new_cols
+        for col in new_df.columns:
+            new_df[col] = new_df[col].apply(lambda x: clean_text_py(str(x)) if isinstance(x, str) else x)
+        return new_df
+    except Exception:
+        return df
+
+
+def format_ioc_fusion_outputs(df_summary, orig_alert_html):
+    """Định dạng card báo cáo tổng hợp theo chuẩn IOC Đô Thị Thực Tế (không dùng emoji, không văn phong robot)."""
+    import pandas as pd
+    depth_val = 0.0
+    flood_level_raw = "Bình thường"
+    veh_count = 0
+    status_label = "Thông thoáng"
+    avg_speed = 0.0
+
+    if isinstance(df_summary, pd.DataFrame) and not df_summary.empty:
+        for _, row in df_summary.iterrows():
+            if len(row) < 2:
+                continue
+            metric = str(row.iloc[0])
+            val = str(row.iloc[1])
+            if "Mực Nước" in metric or "Đo Được" in metric:
+                try:
+                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", val)
+                    if nums:
+                        depth_val = float(nums[0])
+                except Exception:
+                    pass
+            elif "Cấp" in metric or "Độ Ngập" in metric:
+                flood_level_raw = clean_text_py(val)
+            elif "Phương Tiện" in metric:
+                try:
+                    nums = re.findall(r"\d+", val)
+                    if nums:
+                        veh_count = int(nums[0])
+                except Exception:
+                    pass
+            elif "Làn Đường" in metric or "Trạng Thái" in metric or "Tình Trạng" in metric:
+                status_label = clean_text_py(val).strip()
+            elif "Tốc Độ" in metric or "Vận Tốc" in metric:
+                try:
+                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", val)
+                    if nums:
+                        avg_speed = float(nums[0])
+                except Exception:
+                    pass
+
+    # Đánh giá cấp độ Thủy văn chuẩn đô thị
+    if depth_val >= 50.0:
+        flood_status = "Báo động nguy cấp"
+        flood_color = "#ef4444"
+        flood_note = "Cảnh báo ngập đặc biệt nguy hiểm - Cấm các phương tiện di chuyển vào khu vực"
+    elif depth_val >= 30.0:
+        flood_status = "Cảnh báo cấp 2 (Ngập sâu)"
+        flood_color = "#f97316"
+        flood_note = "Khu vực ngập sâu - Khuyến cáo phương tiện gầm thấp tránh đoạn đường ngập"
+    elif depth_val >= 15.0:
+        flood_status = "Cảnh báo cấp 1 (Ngập cục bộ)"
+        flood_color = "#eab308"
+        flood_note = "Ghi nhận ngập mặt đường - Các phương tiện chú ý giảm tốc độ và quan sát an toàn"
+    else:
+        flood_status = "Bình thường"
+        flood_color = "#22c55e"
+        flood_note = "Mặt đường khô ráo, điều kiện tiêu thoát nước tốt, không ghi nhận ngập úng"
+
+    # Đánh giá tình trạng Giao thông chuẩn đô thị (tự nhiên, không robot)
+    if veh_count == 0:
+        traffic_status = "Thông thoáng"
+        traffic_note = "Mật độ phương tiện thấp, lưu thông hoàn toàn thuận lợi"
+    else:
+        traffic_status = status_label or "Lưu thông bình thường"
+        traffic_note = f"Mật độ lưu thông: {veh_count} phương tiện | Vận tốc trung bình: {avg_speed:.1f} km/h"
+
+    # Card tổng hợp IOC - Đồ họa tối hiện đại, KHÔNG ICON, KHÔNG EMOJI
+    alert_html = f"""
+    <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:10px; padding:14px 18px; margin-bottom:12px; font-family:system-ui,-apple-system,sans-serif;'>
+        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;'>
+            <span style='font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;'>HỆ THỐNG GIÁM SÁT THỦY VĂN & GIAO THÔNG ĐÔ THỊ</span>
+            <span style='font-size:0.75rem; color:#64748b; font-weight:600;'>IOC THỜI GIAN THỰC</span>
+        </div>
+        <div style='display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:8px;'>
+            <div style='display:flex; align-items:baseline; gap:8px;'>
+                <span style='font-size:0.95rem; font-weight:600; color:#cbd5e1; min-width:90px;'>Mực Nước:</span>
+                <span style='font-size:1.3rem; font-weight:800; color:{flood_color};'>{depth_val:.1f} cm</span>
+                <span style='font-size:0.8rem; font-weight:700; padding:2px 8px; border-radius:4px; background:rgba(255,255,255,0.08); color:{flood_color};'>{flood_status}</span>
+            </div>
+            <span style='font-size:0.82rem; color:#94a3b8;'>{flood_note}</span>
+        </div>
+        <div style='display:flex; justify-content:space-between; align-items:center;'>
+            <div style='display:flex; align-items:baseline; gap:8px;'>
+                <span style='font-size:0.95rem; font-weight:600; color:#cbd5e1; min-width:90px;'>Giao Thông:</span>
+                <span style='font-size:1.3rem; font-weight:800; color:#38bdf8;'>{veh_count} xe</span>
+                <span style='font-size:0.8rem; font-weight:700; padding:2px 8px; border-radius:4px; background:rgba(56,189,248,0.12); color:#38bdf8;'>{traffic_status}</span>
+            </div>
+            <span style='font-size:0.82rem; color:#94a3b8;'>{traffic_note}</span>
+        </div>
+    </div>
+    """
+
+    # Bảng chỉ số hoàn toàn sạch sẽ, không có bất kỳ emoji nào
+    new_rows = [
+        ["Mực Nước Đo Được", f"{depth_val:.1f} cm"],
+        ["Tình Trạng Ngập Úng", flood_status],
+        ["Lưu Lượng Phương Tiện", f"{veh_count} xe"],
+        ["Trạng Thái Lưu Thông", traffic_status],
+        ["Vận Tốc Trung Bình", f"{avg_speed:.1f} km/h" if veh_count > 0 else "0.0 km/h"]
+    ]
+    clean_df = pd.DataFrame(new_rows, columns=["Chỉ Số Giám Sát", "Giá Trị"])
+    return clean_df, alert_html
+
+
+def install_latest_frame_grabber_timeout_guard(main_mod):
+    """Bảo vệ LatestFrameGrabber tự động ngắt kết nối nếu luồng camera bị đứt tín hiệu quá 6 giây (chống treo spinner 102s)."""
+    import time
+    grabber_cls = getattr(main_mod, "LatestFrameGrabber", None)
+    if grabber_cls is None:
+        for m in list(sys.modules.values()):
+            if m and hasattr(m, "LatestFrameGrabber"):
+                grabber_cls = getattr(m, "LatestFrameGrabber")
+                break
+    if grabber_cls is not None and not getattr(grabber_cls, "_synexan_guarded", False):
+        orig_init = grabber_cls.__init__
+        orig_read = grabber_cls.read_latest
+
+        @functools.wraps(orig_init)
+        def guarded_init(self, src, max_width=640, *args, **kwargs):
+            orig_init(self, src, max_width=max_width, *args, **kwargs)
+            self._start_time = time.time()
+            self._last_success_time = time.time()
+
+        @functools.wraps(orig_read)
+        def guarded_read_latest(self):
+            ok, frm, ts, seq = orig_read(self)
+            now = time.time()
+            if ok and frm is not None:
+                self._last_success_time = now
+            else:
+                # Nếu không nhận được frame trong 6.0 giây liên tục, tự động ngắt is_opened để thoát while loop, chống treo spinner
+                if now - getattr(self, "_last_success_time", now) > 6.0:
+                    print(f"⚠️ [Stream Timeout Guard] Luồng {self.src} mất tín hiệu quá 6 giây, tự động đóng luồng.")
+                    self.is_opened = False
+            return ok, frm, ts, seq
+
+        grabber_cls.__init__ = guarded_init
+        grabber_cls.read_latest = guarded_read_latest
+        grabber_cls._synexan_guarded = True
+
+
 def install_camera_preset_hooks(blocks_instance):
     """Bọc các hàm sự kiện Camera & Lưu cột mốc trong __main__ và demo.fns để tự động lưu/nạp mốc cố định."""
     main_mod = sys.modules.get("__main__")
@@ -279,6 +453,7 @@ def install_camera_preset_hooks(blocks_instance):
     main_mod._synexan_cam_hooks_installed = True
 
     load_camera_presets_from_all_sources()
+    install_latest_frame_grabber_timeout_guard(main_mod)
     import gradio as gr
 
     fn_replacements = {}
@@ -320,7 +495,7 @@ def install_camera_preset_hooks(blocks_instance):
                         choices = main_mod.get_gauge_dropdown_choices()
                         sel_val = choices[-1][1] if choices else None
                         drop_upd = gr.update(choices=choices, value=sel_val)
-                        return prev_rgb, slider_upd, new_state, msg, drop_upd
+                        return prev_rgb, slider_upd, new_state, clean_text_py(msg), drop_upd
             except Exception as e:
                 print(f"⚠️ [Tab5 Cam Restore] {e}")
             return res
@@ -351,7 +526,7 @@ def install_camera_preset_hooks(blocks_instance):
                     n_g, has_r = restore_presets_for_camera(cam_key, canon_url, base_frame, main_mod)
                     if n_g > 0 or has_r:
                         first_frame = main_mod._render_fusion_base_preview(base_frame, new_state)
-                        return first_frame, slider_upd, new_state, msg
+                return first_frame, slider_upd, new_state, clean_text_py(msg)
             except Exception as e:
                 print(f"⚠️ [Fusion Cam Restore] {e}")
             return res
@@ -359,7 +534,30 @@ def install_camera_preset_hooks(blocks_instance):
         setattr(main_mod, "on_fusion_camera_connect", wrapped_fusion_cam)
         fn_replacements[orig_fusion_cam] = wrapped_fusion_cam
 
-    # 3. Hook on_traffic_camera_connect
+    # 3. Hook on_fusion_switch_to_camera_tab và on_tab5_switch_to_camera_tab
+    orig_fusion_tab_switch = getattr(main_mod, "on_fusion_switch_to_camera_tab", None)
+    if callable(orig_fusion_tab_switch):
+        @functools.wraps(orig_fusion_tab_switch)
+        def wrapped_fusion_tab_switch(cam_url, state_data):
+            cam_key, canon_url, cam_name = resolve_canonical_camera_info(cam_url, state_data, main_mod)
+            resolved_url = canon_url or cam_url or (getattr(main_mod, "CANTHO_CAMERAS", [{}])[0].get("url"))
+            return wrapped_fusion_cam(resolved_url, state_data)
+
+        setattr(main_mod, "on_fusion_switch_to_camera_tab", wrapped_fusion_tab_switch)
+        fn_replacements[orig_fusion_tab_switch] = wrapped_fusion_tab_switch
+
+    orig_tab5_tab_switch = getattr(main_mod, "on_tab5_switch_to_camera_tab", None)
+    if callable(orig_tab5_tab_switch):
+        @functools.wraps(orig_tab5_tab_switch)
+        def wrapped_tab5_tab_switch(cam_url, state_data, *args, **kwargs):
+            cam_key, canon_url, cam_name = resolve_canonical_camera_info(cam_url, state_data, main_mod)
+            resolved_url = canon_url or cam_url or (getattr(main_mod, "CANTHO_CAMERAS", [{}])[0].get("url"))
+            return wrapped_tab5_cam(resolved_url, state_data, *args, **kwargs)
+
+        setattr(main_mod, "on_tab5_switch_to_camera_tab", wrapped_tab5_tab_switch)
+        fn_replacements[orig_tab5_tab_switch] = wrapped_tab5_tab_switch
+
+    # 4. Hook on_traffic_camera_connect
     orig_traffic_cam = getattr(main_mod, "on_traffic_camera_connect", None)
     if callable(orig_traffic_cam):
         @functools.wraps(orig_traffic_cam)
@@ -379,7 +577,7 @@ def install_camera_preset_hooks(blocks_instance):
                     _, has_r = restore_presets_for_camera(cam_key, canon_url, base_frame, main_mod)
                     if has_r:
                         prev_rgb = main_mod._render_traffic_base_with_roi(base_frame, new_state)
-                        return prev_rgb, slider_upd, new_state, msg
+                        return prev_rgb, slider_upd, new_state, clean_text_py(msg)
             except Exception as e:
                 print(f"⚠️ [Traffic Cam Restore] {e}")
             return res
@@ -387,7 +585,76 @@ def install_camera_preset_hooks(blocks_instance):
         setattr(main_mod, "on_traffic_camera_connect", wrapped_traffic_cam)
         fn_replacements[orig_traffic_cam] = wrapped_traffic_cam
 
-    # 4. Hook các hàm Lưu / Xóa mốc & ROI để tự động đồng bộ lên Cloud ngay khi người dùng thao tác
+    # 5. Hook run_fusion_live: Thay thế văn phong AI máy móc thành chuẩn IOC Đô Thị Thực Tế & Lọc sạch 100% Emoji
+    orig_run_fusion = getattr(main_mod, "run_fusion_live", None)
+    if callable(orig_run_fusion):
+        @functools.wraps(orig_run_fusion)
+        def wrapped_run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
+            gen = orig_run_fusion(state_data, flood_conf, veh_conf, start_frame_slider)
+            import pandas as pd
+            try:
+                for item in gen:
+                    try:
+                        if isinstance(item, tuple) and len(item) == 4:
+                            hud_rgb, df_summary, alert_html, status_info = item
+                            clean_df, clean_html = format_ioc_fusion_outputs(df_summary, alert_html)
+                            clean_status = clean_text_py(status_info) if isinstance(status_info, str) else status_info
+                            yield hud_rgb, clean_df, clean_html, clean_status
+                            continue
+                    except Exception:
+                        pass
+                    yield item
+            except Exception as e:
+                import pandas as pd
+                yield None, pd.DataFrame(), f"<div style='color:#ef4444;'>⚠️ Gián đoạn kết nối stream: {e}</div>", "<div style='color:#ef4444;'>Lỗi kết nối</div>"
+
+        setattr(main_mod, "run_fusion_live", wrapped_run_fusion_live)
+        fn_replacements[orig_run_fusion] = wrapped_run_fusion_live
+
+    # 6. Hook run_video_tab5_live và run_traffic_congestion_live để lọc sạch 100% Emoji lúc suy luận
+    orig_run_tab5 = getattr(main_mod, "run_video_tab5_live", None)
+    if callable(orig_run_tab5):
+        @functools.wraps(orig_run_tab5)
+        def wrapped_run_tab5(state_data, flood_conf, start_frame_slider):
+            gen = orig_run_tab5(state_data, flood_conf, start_frame_slider)
+            for item in gen:
+                try:
+                    if isinstance(item, tuple) and len(item) == 4:
+                        hud_rgb, df, alarm_html, status_info = item
+                        clean_df = clean_dataframe_emojis(df)
+                        clean_html = clean_text_py(alarm_html) if isinstance(alarm_html, str) else alarm_html
+                        clean_status = clean_text_py(status_info) if isinstance(status_info, str) else status_info
+                        yield hud_rgb, clean_df, clean_html, clean_status
+                        continue
+                except Exception:
+                    pass
+                yield item
+
+        setattr(main_mod, "run_video_tab5_live", wrapped_run_tab5)
+        fn_replacements[orig_run_tab5] = wrapped_run_tab5
+
+    orig_run_traffic = getattr(main_mod, "run_traffic_congestion_live", None)
+    if callable(orig_run_traffic):
+        @functools.wraps(orig_run_traffic)
+        def wrapped_run_traffic(state_data, veh_conf, start_frame_slider):
+            gen = orig_run_traffic(state_data, veh_conf, start_frame_slider)
+            for item in gen:
+                try:
+                    if isinstance(item, tuple) and len(item) == 4:
+                        hud_rgb, df, alarm_html, status_info = item
+                        clean_df = clean_dataframe_emojis(df)
+                        clean_html = clean_text_py(alarm_html) if isinstance(alarm_html, str) else alarm_html
+                        clean_status = clean_text_py(status_info) if isinstance(status_info, str) else status_info
+                        yield hud_rgb, clean_df, clean_html, clean_status
+                        continue
+                except Exception:
+                    pass
+                yield item
+
+        setattr(main_mod, "run_traffic_congestion_live", wrapped_run_traffic)
+        fn_replacements[orig_run_traffic] = wrapped_run_traffic
+
+    # 7. Hook các hàm Lưu / Xóa mốc & ROI để tự động đồng bộ lên Cloud ngay khi người dùng thao tác
     for save_fn_name, state_idx in [
         ("on_tab5_save_gauge", 0),
         ("on_fusion_save_gauge", 0),
@@ -437,6 +704,7 @@ def install_camera_preset_hooks(blocks_instance):
 
 def sanitize_blocks_in_memory(blocks_instance):
     """Sanitize live Gradio Block instances in demo.blocks before get_config_file serializes them."""
+    import pandas as pd
     try:
         blocks_dict = getattr(blocks_instance, "blocks", {}) or {}
         for b in blocks_dict.values():
@@ -452,6 +720,20 @@ def sanitize_blocks_in_memory(blocks_instance):
             val = getattr(b, "value", None)
             if isinstance(val, dict) and "strip_width" in val:
                 val["strip_width"] = 4
+
+            # Làm sạch bảng DataFrame và danh sách dòng khởi tạo (tránh emoji xuất hiện khi reload)
+            if hasattr(b, "headers") and getattr(b, "headers", None):
+                b.headers = [clean_text_py(str(h)) for h in b.headers]
+            if isinstance(val, list):
+                clean_val_rows = []
+                for row in val:
+                    if isinstance(row, list):
+                        clean_val_rows.append([clean_text_py(str(c)) for c in row])
+                    else:
+                        clean_val_rows.append(clean_text_py(str(row)) if isinstance(row, str) else row)
+                b.value = clean_val_rows
+            elif isinstance(val, pd.DataFrame):
+                b.value = clean_dataframe_emojis(val)
 
             for attr in ("label", "value", "title", "info", "placeholder"):
                 cur = getattr(b, attr, None)

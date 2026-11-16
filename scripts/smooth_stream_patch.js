@@ -73,6 +73,24 @@
           p.headers = p.headers.map((h) => (typeof h === 'string' ? cleanTextString(h) : h));
         }
 
+        // Làm sạch toàn bộ các hàng bảng DataFrame (khử 100% emoji trong bảng khi reload)
+        if (Array.isArray(p.value)) {
+          p.value = p.value.map((row) => {
+            if (Array.isArray(row)) {
+              return row.map((cell) => (typeof cell === 'string' ? cleanTextString(cell) : cell));
+            }
+            return typeof row === 'string' ? cleanTextString(row) : row;
+          });
+        }
+        if (p.value && typeof p.value === 'object' && Array.isArray(p.value.data)) {
+          p.value.data = p.value.data.map((row) => {
+            if (Array.isArray(row)) {
+              return row.map((cell) => (typeof cell === 'string' ? cleanTextString(cell) : cell));
+            }
+            return typeof row === 'string' ? cleanTextString(row) : row;
+          });
+        }
+
         if (Array.isArray(p.choices)) {
           p.choices = p.choices.map((ch) => {
             if (Array.isArray(ch) && ch.length >= 2) {
