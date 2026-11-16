@@ -989,6 +989,15 @@ def install_flood_v20_solution_1_and_5_hooks():
 
                 @functools.wraps(orig_predict)
                 def weighted_predict(self, *args, **kwargs):
+                    # Tối ưu kích thước suy luận imgsz=800 & retina_masks=True cho mô hình Phân đoạn ngập lụt (Flood V20)
+                    # Khắc phục triệt để hiện tượng video dọc/vật thể nhỏ bị co ở imgsz=640 khiến mặt nạ nước bị rỗng (0 mask)
+                    try:
+                        is_flood_seg = (getattr(self, "names", {}) == {0: "flood"} or getattr(self, "task", "") == "segment")
+                        if is_flood_seg:
+                            kwargs["imgsz"] = 800
+                            kwargs["retina_masks"] = True
+                    except Exception:
+                        pass
                     results = orig_predict(self, *args, **kwargs)
                     try:
                         if results and isinstance(results, (list, tuple)):
@@ -1003,8 +1012,8 @@ def install_flood_v20_solution_1_and_5_hooks():
                                     and getattr(boxes, "conf", None) is not None
                                     and len(boxes.conf) == len(masks.data)
                                 ):
-                                    confs_t = boxes.conf.to(masks.data.device, dtype=masks.data.dtype).view(-1, 1, 1)
-                                    masks.data = masks.data * confs_t
+                                    confs_t = boxes.conf.to(masks.data.device, dtype=torch.float32).view(-1, 1, 1)
+                                    masks.data = masks.data.to(torch.float32) * confs_t
                     except Exception:
                         pass
                     return results
