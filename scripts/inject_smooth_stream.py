@@ -304,10 +304,9 @@ def clean_dataframe_emojis(df):
 
 
 def format_ioc_fusion_outputs(df_summary, orig_alert_html):
-    """Định dạng card báo cáo tổng hợp theo chuẩn IOC Đô Thị Thực Tế (không dùng emoji, không văn phong robot)."""
+    """Khôi phục card tổng kết về đúng bố cục 2 dòng nguyên bản ban đầu, giữ 100% không icon/emoji."""
     import pandas as pd
     depth_val = 0.0
-    flood_level_raw = "Bình thường"
     veh_count = 0
     status_label = "Thông thoáng"
     avg_speed = 0.0
@@ -325,8 +324,6 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
                         depth_val = float(nums[0])
                 except Exception:
                     pass
-            elif "Cấp" in metric or "Độ Ngập" in metric:
-                flood_level_raw = clean_text_py(val)
             elif "Phương Tiện" in metric:
                 try:
                     nums = re.findall(r"\d+", val)
@@ -344,67 +341,43 @@ def format_ioc_fusion_outputs(df_summary, orig_alert_html):
                 except Exception:
                     pass
 
-    # Đánh giá cấp độ Thủy văn chuẩn đô thị
-    if depth_val >= 50.0:
-        flood_status = "Báo động nguy cấp"
+    depth_str = f"{depth_val:.1f} cm"
+    flood_level = "AN TOÀN"
+    flood_color = "#22c55e"
+    if depth_val >= 50:
+        flood_level = "CỰC KỲ NGUY HIỂM"
         flood_color = "#ef4444"
-        flood_note = "Cảnh báo ngập đặc biệt nguy hiểm - Cấm các phương tiện di chuyển vào khu vực"
-    elif depth_val >= 30.0:
-        flood_status = "Cảnh báo cấp 2 (Ngập sâu)"
+    elif depth_val >= 30:
+        flood_level = "BÁO ĐỘNG CẤP 2 (NGẬP SÂU)"
         flood_color = "#f97316"
-        flood_note = "Khu vực ngập sâu - Khuyến cáo phương tiện gầm thấp tránh đoạn đường ngập"
-    elif depth_val >= 15.0:
-        flood_status = "Cảnh báo cấp 1 (Ngập cục bộ)"
+    elif depth_val >= 15:
+        flood_level = "BÁO ĐỘNG CẤP 1 (NGẬP NHẸ)"
         flood_color = "#eab308"
-        flood_note = "Ghi nhận ngập mặt đường - Các phương tiện chú ý giảm tốc độ và quan sát an toàn"
-    else:
-        flood_status = "Bình thường"
-        flood_color = "#22c55e"
-        flood_note = "Mặt đường khô ráo, điều kiện tiêu thoát nước tốt, không ghi nhận ngập úng"
 
-    # Đánh giá tình trạng Giao thông chuẩn đô thị (tự nhiên, không robot)
-    if veh_count == 0:
-        traffic_status = "Thông thoáng"
-        traffic_note = "Mật độ phương tiện thấp, lưu thông hoàn toàn thuận lợi"
-    else:
-        traffic_status = status_label or "Lưu thông bình thường"
-        traffic_note = f"Mật độ lưu thông: {veh_count} phương tiện | Vận tốc trung bình: {avg_speed:.1f} km/h"
-
-    # Card tổng hợp IOC - Đồ họa tối hiện đại, KHÔNG ICON, KHÔNG EMOJI
+    # Đúng 100% bố cục và màu sắc giao diện gốc, loại bỏ emoji 🌊 và 🚗
     alert_html = f"""
-    <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:10px; padding:14px 18px; margin-bottom:12px; font-family:system-ui,-apple-system,sans-serif;'>
-        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;'>
-            <span style='font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;'>HỆ THỐNG GIÁM SÁT THỦY VĂN & GIAO THÔNG ĐÔ THỊ</span>
-            <span style='font-size:0.75rem; color:#64748b; font-weight:600;'>IOC THỜI GIAN THỰC</span>
+    <div style='background:rgba(15,23,42,0.95); border:1px solid #334155; border-radius:12px; padding:14px 18px; margin-bottom:12px;'>
+        <div style='display:flex; align-items:center; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); margin-bottom:10px;'>
+            <span style='font-size:1.1rem; font-weight:700; color:#38bdf8; min-width:115px;'>Mực Nước:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:{flood_color}; margin-right:12px;'>{depth_str}</span>
+            <span style='font-size:0.88rem; font-weight:700; padding:3px 10px; border-radius:6px; background:rgba(255,255,255,0.1); color:{flood_color};'>{flood_level}</span>
         </div>
-        <div style='display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:8px;'>
-            <div style='display:flex; align-items:baseline; gap:8px;'>
-                <span style='font-size:0.95rem; font-weight:600; color:#cbd5e1; min-width:90px;'>Mực Nước:</span>
-                <span style='font-size:1.3rem; font-weight:800; color:{flood_color};'>{depth_val:.1f} cm</span>
-                <span style='font-size:0.8rem; font-weight:700; padding:2px 8px; border-radius:4px; background:rgba(255,255,255,0.08); color:{flood_color};'>{flood_status}</span>
-            </div>
-            <span style='font-size:0.82rem; color:#94a3b8;'>{flood_note}</span>
-        </div>
-        <div style='display:flex; justify-content:space-between; align-items:center;'>
-            <div style='display:flex; align-items:baseline; gap:8px;'>
-                <span style='font-size:0.95rem; font-weight:600; color:#cbd5e1; min-width:90px;'>Giao Thông:</span>
-                <span style='font-size:1.3rem; font-weight:800; color:#38bdf8;'>{veh_count} xe</span>
-                <span style='font-size:0.8rem; font-weight:700; padding:2px 8px; border-radius:4px; background:rgba(56,189,248,0.12); color:#38bdf8;'>{traffic_status}</span>
-            </div>
-            <span style='font-size:0.82rem; color:#94a3b8;'>{traffic_note}</span>
+        <div style='display:flex; align-items:center;'>
+            <span style='font-size:1.1rem; font-weight:700; color:#e2e8f0; min-width:115px;'>Giao Thông:</span>
+            <span style='font-size:1.35rem; font-weight:800; color:#38bdf8; margin-right:12px;'>{veh_count} xe</span>
+            <span style='font-size:0.9rem; color:#94a3b8;'>({status_label} - Vận tốc TB: <b style="color:#e2e8f0;">{avg_speed:.1f} km/h</b>)</span>
         </div>
     </div>
     """
 
-    # Bảng chỉ số hoàn toàn sạch sẽ, không có bất kỳ emoji nào
-    new_rows = [
-        ["Mực Nước Đo Được", f"{depth_val:.1f} cm"],
-        ["Tình Trạng Ngập Úng", flood_status],
-        ["Lưu Lượng Phương Tiện", f"{veh_count} xe"],
-        ["Trạng Thái Lưu Thông", traffic_status],
-        ["Vận Tốc Trung Bình", f"{avg_speed:.1f} km/h" if veh_count > 0 else "0.0 km/h"]
+    table_rows = [
+        ["Mực Nước Đo Được", depth_str],
+        ["Cấp Độ Ngập", flood_level],
+        ["Tổng Phương Tiện", f"{veh_count} xe"],
+        ["Tình Trạng Làn Đường", status_label],
+        ["Tốc Độ Trung Bình", f"{avg_speed:.1f} km/h"]
     ]
-    clean_df = pd.DataFrame(new_rows, columns=["Chỉ Số Giám Sát", "Giá Trị"])
+    clean_df = pd.DataFrame(table_rows, columns=["Chỉ Số Giám Sát", "Giá Trị"])
     return clean_df, alert_html
 
 
