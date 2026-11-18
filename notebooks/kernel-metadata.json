@@ -1,6 +1,6 @@
 {
-  "id": "thitnguynthanh/synexan-flood-gpu-1116101522",
-  "title": "synexan-flood-gpu-1116101522",
+  "id": "thittn/synexan-flood-backend-gpu",
+  "title": "synexan-flood-backend-gpu",
   "code_file": "synexan_flood_gpu.ipynb",
   "language": "python",
   "kernel_type": "notebook",

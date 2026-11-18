@@ -688,25 +688,22 @@
         </div>
       </div>
 
-      <!-- HÀNG NÚT ĐIỀU KHIỂN & KÍCH HOẠT (TINH GỌN, HIỆN ĐẠI, ZERO ICON) -->
-      <div id="overlayActionRow" style="display: none; margin-top: 14px; gap: 8px; justify-content: center; flex-wrap: wrap;">
-        <button id="btnConnectApiOverlay" class="btn-kaggle-quick" style="cursor: pointer; background: linear-gradient(135deg, #0284c7, #2563eb); border: none; font-weight: 600;">
-          <span id="btnConnectApiOverlayText">Kích hoạt GPU Tự động</span>
-        </button>
-        <button id="btnEnterAppDirectly" class="btn-kaggle-sub" style="cursor: pointer; border: 1px solid #334155;">
-          Mở Giao Diện
-        </button>
-      </div>
-
-      <!-- HÀNG NÚT TÁC VỤ NHANH KAGGLE (CHẠY THỦ CÔNG GIỜ CAO ĐIỂM) -->
-      <div id="kagglePublicCard" class="compact-kaggle-bar">
-        <span class="compact-kaggle-label">Chạy thủ công (0s chờ):</span>
-        <div class="compact-kaggle-actions">
-          <a id="btnOpenKagglePublic" href="https://www.kaggle.com/code/thietnguyen/synexan-flood-backend-gpu" target="_blank" rel="noopener noreferrer" class="btn-kaggle-quick" title="Mở Notebook công khai trên Kaggle và nhấn Run All">
-            Mở Kaggle
-          </a>
-          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" class="btn-kaggle-sub" title="Tải tệp .ipynb trực tiếp">
-            Tải .ipynb
+      <!-- KHỐI HÀNH ĐỘNG DUY NHẤT: MỞ KAGGLE CHẠY TRỰC TIẾP (PUBLIC 100%, BẤT KỲ TÀI KHOẢN NÀO CŨNG CHẠY ĐƯỢC) -->
+      <div id="singleLaunchContainer" style="margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%;">
+        <a id="btnOpenKagglePublic" 
+           href="https://www.kaggle.com/code/thittn/synexan-flood-backend-gpu" 
+           target="_blank" 
+           rel="noopener noreferrer" 
+           class="btn-connect-large" 
+           style="text-decoration: none; text-align: center; border-radius: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
+          <span>⚡ Mở & Chạy Trực Tiếp Trên Kaggle</span>
+        </a>
+        <div style="font-size: 12px; color: #94a3b8; line-height: 1.5; max-width: 440px; text-align: center;">
+          Nhấn nút để mở Notebook trên Kaggle và bấm <strong>Run All</strong> (hỗ trợ mọi tài khoản). Web sẽ tự động nhận diện và mở giao diện AI ngay khi GPU sẵn sàng!
+        </div>
+        <div style="margin-top: 2px;">
+          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" style="font-size: 11px; color: #64748b; text-decoration: underline;">
+            Tải tệp .ipynb dự phòng
           </a>
         </div>
       </div>
@@ -1371,22 +1368,19 @@
         return;
       }
 
-      // 4. Nếu chưa Online ngay: Hiển thị nút điều khiển ngay lập tức & lắng nghe ngầm mỗi 2s
-      // Nếu người dùng đang mở Kaggle chạy thủ công, web sẽ tự bắt tín hiệu và mở giao diện trong <2s!
+      // 4. Nếu chưa Online ngay: Hiển thị giao diện tinh gọn với 1 nút mở trực tiếp & lắng nghe ngầm mỗi 2s
+      // Tuyệt đối không tự ý kích hoạt backend ngầm khi vừa mở web
       showOverlay();
-      updateStatusUI("offline", "Chưa kết nối GPU");
+      updateStatusUI("offline", "Backend GPU: Chưa kết nối");
       if (overlaySubText) {
-        overlaySubText.textContent = "Đang lắng nghe tín hiệu từ Kaggle GPU. Bạn có thể bấm 'Kích hoạt GPU Tự động' hoặc chạy trực tiếp trên Kaggle.";
+        overlaySubText.textContent = "Backend AI hiện đang offline. Nhấn nút bên dưới để mở Notebook trên Kaggle và nhấn Run All.";
       }
       const stepTextElem = document.getElementById("overlayActiveStepText");
-      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu Heartbeat từ GPU (tự động mở khi sẵn sàng)...";
+      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu từ GPU (tự động mở giao diện khi sẵn sàng)...";
       const progressFill = document.getElementById("overlayProgressBarFill");
       if (progressFill) progressFill.style.width = "100%";
 
-      const overlayActionRow = document.getElementById("overlayActionRow");
-      if (overlayActionRow) overlayActionRow.style.display = "flex";
-
-      // Liên tục lắng nghe ngầm mỗi 2s (bắt tín hiệu ngay khi Kaggle chạy xong)
+      // Liên tục lắng nghe ngầm mỗi 2s (khi người dùng bấm Run All trên Kaggle, web bắt tín hiệu và mở app ngay)
       startWaitingForBackendSignal();
     }
     initAutoLifecycle();

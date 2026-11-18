@@ -103,7 +103,7 @@
 
 ### 3. Khởi Chạy Backend AI Trên Kaggle Cloud GPU (Tesla T4)
 
-1. Mở Notebook trên Kaggle: [nguynvlun/floodkaggleapi](https://www.kaggle.com/code/nguynvlun/floodkaggleapi).
+1. Mở Notebook trên Kaggle: [thittn/synexan-flood-backend-gpu](https://www.kaggle.com/code/thittn/synexan-flood-backend-gpu).
 2. Đảm bảo cấu hình: **Accelerator = GPU T4 x 2** (hoặc GPU P100) và **Internet = ON**.
 3. Bấm **Run All**.
 4. Notebook sẽ:
