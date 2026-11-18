@@ -192,10 +192,10 @@ async function clearStoredBackendUrl() {
                     Authorization: `Bearer ${redisToken}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(['DEL', 'activeBackendUrl']),
+                body: JSON.stringify(['DEL', 'activeBackendUrl', 'kernelLog']),
                 signal: AbortSignal.timeout(3500)
             });
-            console.log('[INFO] 🗑️ Cleared activeBackendUrl from Upstash Redis');
+            console.log('[INFO] 🗑️ Cleared activeBackendUrl & kernelLog from Upstash Redis');
         } catch (err) {
             console.error('[WARN] Failed to delete activeBackendUrl from Upstash Redis:', err.message);
         }
