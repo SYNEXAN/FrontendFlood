@@ -265,6 +265,24 @@ app.post('/api/backend-url', async (req, res) => {
             return res.status(400).json({ error: 'Ignored internal api.trycloudflare.com URL' });
         }
 
+        // Kiểm tra lệnh cưỡng chế tắt GPU từ người dùng (Graceful Remote Self-Destruct)
+        const { redisUrl, redisToken } = getUpstashConfig();
+        if (redisUrl && redisToken) {
+            try {
+                const sRes = await fetch(`${redisUrl}/get/shutdownActive`, {
+                    headers: { Authorization: `Bearer ${redisToken}` },
+                    signal: AbortSignal.timeout(2000)
+                });
+                if (sRes.ok) {
+                    const sData = await sRes.json();
+                    if (sData && sData.result === '1') {
+                        console.log(`[SHUTDOWN-ORDER] 🛑 Máy chủ đang ở chế độ TẮT. Yêu cầu kernel (${cleanUrl}) tự hủy để tiết kiệm GPU.`);
+                        return res.json({ success: true, superseded: true });
+                    }
+                }
+            } catch (e) {}
+        }
+
         const currentUrl = (await getStoredBackendUrl() || '').trim().replace(/\/+$/, '');
         const storedLog = await getStoredKernelLog();
         const storedVersion = (storedLog && storedLog.version) || activeBackendVersion;
@@ -535,6 +553,17 @@ app.post('/api/wake-gpu', async (req, res) => {
         if (isForce) {
             await clearStoredBackendUrl();
         }
+        const { redisUrl: rUrl, redisToken: rTok } = getUpstashConfig();
+        if (rUrl && rTok) {
+            try {
+                await fetch(rUrl, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${rTok}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(['DEL', 'shutdownActive']),
+                    signal: AbortSignal.timeout(2500)
+                });
+            } catch (e) {}
+        }
 
         const ghRes = await fetch(`https://api.github.com/repos/${ghRepo}/dispatches`, {
             method: 'POST',
@@ -582,6 +611,20 @@ app.post('/api/backend-shutdown', async (req, res) => {
             }).catch(() => {});
         }
         await clearStoredBackendUrl();
+        const { redisUrl, redisToken } = getUpstashConfig();
+        if (redisUrl && redisToken) {
+            try {
+                await fetch(redisUrl, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${redisToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(['SET', 'shutdownActive', '1', 'EX', 7200]),
+                    signal: AbortSignal.timeout(3500)
+                });
+            } catch (e) {}
+        }
         return res.json({ success: true, message: "Đã gửi tín hiệu tắt máy chủ GPU thành công." });
     } catch (err) {
         return res.status(500).json({ error: err.message });
