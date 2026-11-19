@@ -24,6 +24,7 @@ import sys
 import time
 import base64
 import math
+import queue
 import threading
 from pathlib import Path
 import cv2
@@ -82,7 +83,7 @@ try:
             h_f, w_f = bgr.shape[:2]
             if w_f > 640:
                 bgr = cv2.resize(bgr, (640, int(h_f * 640.0 / w_f)), interpolation=cv2.INTER_AREA)
-            success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 72])
+            success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 68, cv2.IMWRITE_JPEG_OPTIMIZE, 0])
             if success:
                 b64_str = base64.b64encode(buf).decode("ascii")
                 b64_uri = f"data:image/jpeg;base64,{b64_str}"
@@ -190,6 +191,92 @@ from traffic_congestion_engine import (
     draw_traffic_roi_preview,
     order_quad_points,
 )
+
+# ==============================================================================
+# BỘ ĐỆM KHỬ RUNG ĐÀN HỒI THỜI GIAN THỰC (ELASTIC JITTER BUFFER STREAMER)
+# Tách rời luồng AI Producer và luồng phát Consumer để triệt tiêu hoàn toàn giật hình,
+# tự cân bằng buffer chống cạn kiệt (Zero-Starvation) mà không ảnh hưởng UI và độ phân giải.
+# ==============================================================================
+class ElasticJitterBufferStreamer:
+    """
+    Bộ đệm khử rung tự cân bằng (Elastic Jitter Buffer):
+    - Đảm bảo KHÔNG cạn kiệt frame dự trữ nhờ thuật toán điều tốc đàn hồi 3 tầng.
+    - Duy trì video phát phẳng lì 25 FPS không bao giờ bị khựng nhịp.
+    """
+    def __init__(self, target_fps=25.0, target_buffer=4, max_queue=8):
+        self.base_interval = 1.0 / max(10.0, float(target_fps))  # 40ms với 25 FPS
+        self.target_buffer = target_buffer                      # Duy trì 3-4 frames đệm (~150ms)
+        self.q = queue.Queue(maxsize=max_queue)
+        self.stop_event = threading.Event()
+        self.producer_finished = False
+
+    def push(self, hud_rgb, df, alarm_html, status_info):
+        """Luồng GPU Producer đẩy kết quả vào."""
+        if self.stop_event.is_set():
+            return False
+        item = (hud_rgb, df, alarm_html, status_info)
+        while not self.stop_event.is_set():
+            try:
+                self.q.put(item, timeout=0.08)
+                return True
+            except queue.Full:
+                # Nếu hàng đợi đầy (mạng bị ứ đọng), xả bớt 1 frame cũ nhất để tránh trôi trễ
+                try:
+                    self.q.get_nowait()
+                except queue.Empty:
+                    pass
+        return False
+
+    def mark_finished(self):
+        self.producer_finished = True
+
+    def stream_generator(self):
+        """Luồng Gradio Consumer rút frame ra với nhịp đàn hồi tự cân bằng."""
+        # 1. Khởi động êm ái: Chờ gom đủ 3-4 frame ban đầu
+        t_wait_start = time.perf_counter()
+        while not self.stop_event.is_set() and not self.producer_finished:
+            if self.q.qsize() >= self.target_buffer or (time.perf_counter() - t_wait_start > 0.35):
+                break
+            time.sleep(0.008)
+
+        next_tick = time.perf_counter()
+
+        while not self.stop_event.is_set():
+            q_len = self.q.qsize()
+
+            # TẦNG 3: Nếu cạn kiệt bất thường do sự cố mạng cực đoan, nạp nhanh lại 2 frame
+            if q_len == 0 and not self.producer_finished:
+                for _ in range(15):
+                    time.sleep(0.008)
+                    if self.q.qsize() >= 2 or self.producer_finished:
+                        break
+
+            try:
+                item = self.q.get(timeout=0.6)
+            except queue.Empty:
+                if self.producer_finished:
+                    break
+                continue
+
+            # TẦNG 2: Điều chỉnh nhịp đồng hồ đàn hồi (Elastic Clock)
+            current_qsize = self.q.qsize()
+            if current_qsize <= 2 and not self.producer_finished:
+                adjusted_interval = self.base_interval * 1.10  # 44ms (giãn nhẹ 4ms để GPU bù đắp)
+            elif current_qsize >= 6:
+                adjusted_interval = self.base_interval * 0.90  # 36ms (co nhẹ 4ms để xả đệm)
+            else:
+                adjusted_interval = self.base_interval         # 40ms chuẩn
+
+            now = time.perf_counter()
+            sleep_time = next_tick - now
+            if sleep_time > 0.001:
+                time.sleep(sleep_time)
+
+            next_tick = max(time.perf_counter(), next_tick + adjusted_interval)
+            yield item[0], item[1], item[2], item[3]
+
+    def stop(self):
+        self.stop_event.set()
 
 # Cấu hình OpenCV FFMPEG ưu tiên giao thức TCP ổn định cho luồng RTSP
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;500000|reorder_queue_size;0|stimeout;6000000"
@@ -1313,36 +1400,50 @@ def run_video_tab5_live(state_data, flood_conf, start_frame_slider):
     cur_idx = start_idx
     step = 2
 
+    streamer = ElasticJitterBufferStreamer(target_fps=25.0, target_buffer=4, max_queue=8)
+
+    def producer_worker():
+        nonlocal cur_idx
+        try:
+            while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id and not streamer.stop_event.is_set():
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cur_idx = 0
+                    continue
+
+                cur_idx += 1
+                if (cur_idx % step) != 0:
+                    continue
+
+                cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
+                hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
+                    frame, global_multi_gauge_manager, global_tab5_arbiter,
+                    active_flood, None,
+                    flood_conf=cur_conf, mode="Cột mốc"
+                )
+
+                status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
+                if not streamer.push(hud_rgb, df, alarm_html, status_info):
+                    break
+        except Exception as prod_err:
+            print(f"⚠️ [Tab 1 Video Producer Error] {prod_err}")
+        finally:
+            streamer.mark_finished()
+
+    prod_thread = threading.Thread(target=producer_worker, daemon=True)
+    prod_thread.start()
+
     try:
-        while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                cur_idx = 0
-                continue
-
-            cur_idx += 1
-            if (cur_idx % step) != 0:
-                continue
-
-            cur_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-            h_orig, w_orig = frame.shape[:2]
-            if w_orig > 640:
-                frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
-
-            hud_rgb, df, alarm_html, report = process_single_frame_hybrid(
-                frame, global_multi_gauge_manager, global_tab5_arbiter,
-                active_flood, None,
-                flood_conf=cur_conf, mode="Cột mốc"
-            )
-
-            status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> ({(cur_idx / max(1, total_frames))*100:.0f}%) | Mực nước: <b>{report.master_depth_cm:.1f} cm</b></div>"
-            yield hud_rgb, df, alarm_html, status_info
-            time.sleep(0.040)
+        yield from streamer.stream_generator()
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
-        return
     finally:
+        streamer.stop()
         cap.release()
 
 # ==============================================================================
@@ -1758,36 +1859,50 @@ def run_traffic_congestion_live(state_data, veh_conf, start_frame_slider):
     cur_idx = start_idx
     step = 2
 
+    streamer = ElasticJitterBufferStreamer(target_fps=25.0, target_buffer=4, max_queue=8)
+
+    def producer_worker():
+        nonlocal cur_idx
+        try:
+            while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id and not streamer.stop_event.is_set():
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cur_idx = 0
+                    continue
+
+                cur_idx += 1
+                if (cur_idx % step) != 0:
+                    continue
+
+                cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
+                sim_t = float(cur_idx) / float(fps_vid)
+                hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
+                    frame, vehicle_model, veh_conf=cur_conf, fps=fps_vid,
+                    is_single_image=False, location_name=loc_name, sim_time_s=sim_t
+                )
+
+                status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Xe: <b>{report.vehicle_count}</b> ({report.status_label}) | Tốc độ: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
+                if not streamer.push(hud_rgb, df, alarm_html, status_info):
+                    break
+        except Exception as prod_err:
+            print(f"⚠️ [Tab 2 Video Producer Error] {prod_err}")
+        finally:
+            streamer.mark_finished()
+
+    prod_thread = threading.Thread(target=producer_worker, daemon=True)
+    prod_thread.start()
+
     try:
-        while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                cur_idx = 0
-                continue
-
-            cur_idx += 1
-            if (cur_idx % step) != 0:
-                continue
-
-            cur_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
-            h_orig, w_orig = frame.shape[:2]
-            if w_orig > 640:
-                frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
-
-            sim_t = float(cur_idx) / float(fps_vid)
-            hud_rgb, df, alarm_html, report = global_traffic_analyzer.analyze_frame(
-                frame, vehicle_model, veh_conf=cur_conf, fps=fps_vid,
-                is_single_image=False, location_name=loc_name, sim_time_s=sim_t
-            )
-
-            status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> | Xe: <b>{report.vehicle_count}</b> ({report.status_label}) | Tốc độ: <b>{report.avg_speed_kmh:.1f} km/h</b></div>"
-            yield hud_rgb, df, alarm_html, status_info
-            time.sleep(0.040)
+        yield from streamer.stream_generator()
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
-        return
     finally:
+        streamer.stop()
         cap.release()
 
 # ==============================================================================
@@ -2364,51 +2479,65 @@ def run_fusion_live(state_data, flood_conf, veh_conf, start_frame_slider):
     cur_idx = start_idx
     step = 2
 
+    streamer = ElasticJitterBufferStreamer(target_fps=25.0, target_buffer=4, max_queue=8)
+
+    def producer_worker():
+        nonlocal cur_idx
+        try:
+            while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id and not streamer.stop_event.is_set():
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cur_idx = 0
+                    continue
+
+                cur_idx += 1
+                if (cur_idx % step) != 0:
+                    continue
+
+                cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
+                cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
+
+                h_orig, w_orig = frame.shape[:2]
+                if w_orig > 640:
+                    frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
+
+                sim_t = float(cur_idx) / float(fps_vid)
+
+                # 1. Phân tích Ngập Lụt (SCSG-Net)
+                flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
+                    frame, global_multi_gauge_manager, global_tab5_arbiter,
+                    active_flood, None,
+                    flood_conf=cur_flood_conf, mode="Cột mốc"
+                )
+                # 2. Phân tích Phương Tiện (YOLO + ByteTrack)
+                _, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
+                    frame, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
+                    is_single_image=False, location_name=loc_name, sim_time_s=sim_t
+                )
+
+                flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
+                final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
+                final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
+
+                summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
+                status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> (Tích Hợp 2 Model) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
+                if not streamer.push(final_hud_rgb, summary_df, alert_html, status_info):
+                    break
+        except Exception as prod_err:
+            print(f"⚠️ [Tab 3 Video Producer Error] {prod_err}")
+        finally:
+            streamer.mark_finished()
+
+    prod_thread = threading.Thread(target=producer_worker, daemon=True)
+    prod_thread.start()
+
     try:
-        while cap.isOpened() and LIVE_STREAM_STATE["active"] and LIVE_STREAM_STATE["run_id"] == my_run_id:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                cur_idx = 0
-                continue
-
-            cur_idx += 1
-            if (cur_idx % step) != 0:
-                continue
-
-            cur_flood_conf = float(LIVE_STREAM_STATE.get("flood_conf", flood_conf))
-            cur_veh_conf = float(LIVE_STREAM_STATE.get("veh_conf", veh_conf))
-
-            h_orig, w_orig = frame.shape[:2]
-            if w_orig > 640:
-                frame = cv2.resize(frame, (640, int(h_orig * 640.0 / w_orig)), interpolation=cv2.INTER_AREA)
-
-            sim_t = float(cur_idx) / float(fps_vid)
-
-            # 1. Phân tích Ngập Lụt (SCSG-Net)
-            flood_hud_rgb, _, _, flood_report = process_single_frame_hybrid(
-                frame, global_multi_gauge_manager, global_tab5_arbiter,
-                active_flood, None,
-                flood_conf=cur_flood_conf, mode="Cột mốc"
-            )
-            # 2. Phân tích Phương Tiện (YOLO + ByteTrack)
-            _, _, _, traffic_report = global_traffic_analyzer.analyze_frame(
-                frame, vehicle_model, veh_conf=cur_veh_conf, fps=fps_vid,
-                is_single_image=False, location_name=loc_name, sim_time_s=sim_t
-            )
-
-            flood_hud_bgr = cv2.cvtColor(flood_hud_rgb, cv2.COLOR_RGB2BGR)
-            final_hud_bgr = global_traffic_analyzer.render_traffic_hud(flood_hud_bgr, traffic_report, is_single_image=False)
-            final_hud_rgb = cv2.cvtColor(final_hud_bgr, cv2.COLOR_BGR2RGB)
-
-            summary_df, alert_html = build_fusion_outputs(flood_report, traffic_report)
-            status_info = f"<div style='color:#38bdf8;'>🎬 Khung hình <b>{cur_idx}/{total_frames}</b> (Tích Hợp 2 Model) | Mực nước: <b>{flood_report.master_depth_cm:.1f} cm</b> | Xe: <b>{traffic_report.vehicle_count}</b></div>"
-            yield final_hud_rgb, summary_df, alert_html, status_info
-            time.sleep(0.025)
+        yield from streamer.stream_generator()
     except GeneratorExit:
         LIVE_STREAM_STATE["active"] = False
-        return
     finally:
+        streamer.stop()
         cap.release()
 
 # ==============================================================================
