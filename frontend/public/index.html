@@ -654,13 +654,13 @@
     <div class="overlay-card">
       <div class="status-text">AI Urban Flood & Traffic Monitor</div>
       <div class="sub-text" id="overlaySubText">
-        Đang kết nối Backend GPU Tesla T4...
+        Backend GPU đang offline
       </div>
 
       <!-- Khung hiển thị bước hoạt động hiện tại (1 Dòng duy nhất) -->
       <div class="current-step-badge">
         <span class="status-dot pulsing" style="width: 8px; height: 8px; margin: 0;"></span>
-        <span id="overlayActiveStepText">Đang khởi tạo kết nối backend GPU...</span>
+        <span id="overlayActiveStepText">Đang chờ tín hiệu GPU...</span>
       </div>
 
       <!-- Thanh tiến trình mỏng tinh tế -->
@@ -688,24 +688,16 @@
         </div>
       </div>
 
-      <!-- KHỐI HÀNH ĐỘNG DUY NHẤT: MỞ KAGGLE CHẠY TRỰC TIẾP (PUBLIC 100%, BẤT KỲ TÀI KHOẢN NÀO CŨNG CHẠY ĐƯỢC) -->
-      <div id="singleLaunchContainer" style="margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%;">
+      <!-- KHỐI HÀNH ĐỘNG DUY NHẤT: MỞ KAGGLE CHẠY TRỰC TIẾP -->
+      <div id="singleLaunchContainer" style="margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%;">
         <a id="btnOpenKagglePublic" 
            href="https://www.kaggle.com/code/thittn/synexan-flood-backend-gpu" 
            target="_blank" 
            rel="noopener noreferrer" 
            class="btn-connect-large" 
            style="text-decoration: none; text-align: center; border-radius: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
-          <span>⚡ Mở & Chạy Trực Tiếp Trên Kaggle</span>
+          <span>⚡ Khởi chạy trên Kaggle</span>
         </a>
-        <div style="font-size: 12px; color: #94a3b8; line-height: 1.5; max-width: 440px; text-align: center;">
-          Nhấn nút để mở Notebook trên Kaggle và bấm <strong>Run All</strong> (hỗ trợ mọi tài khoản). Web sẽ tự động nhận diện và mở giao diện AI ngay khi GPU sẵn sàng!
-        </div>
-        <div style="margin-top: 2px;">
-          <a href="/synexan_flood_gpu.ipynb" download="synexan_flood_gpu.ipynb" style="font-size: 11px; color: #64748b; text-decoration: underline;">
-            Tải tệp .ipynb dự phòng
-          </a>
-        </div>
       </div>
     </div>
   </div>
@@ -1373,10 +1365,10 @@
       showOverlay();
       updateStatusUI("offline", "Backend GPU: Chưa kết nối");
       if (overlaySubText) {
-        overlaySubText.textContent = "Backend AI hiện đang offline. Nhấn nút bên dưới để mở Notebook trên Kaggle và nhấn Run All.";
+        overlaySubText.textContent = "Backend GPU đang offline";
       }
       const stepTextElem = document.getElementById("overlayActiveStepText");
-      if (stepTextElem) stepTextElem.textContent = "Đang lắng nghe tín hiệu từ GPU (tự động mở giao diện khi sẵn sàng)...";
+      if (stepTextElem) stepTextElem.textContent = "Đang chờ tín hiệu GPU...";
       const progressFill = document.getElementById("overlayProgressBarFill");
       if (progressFill) progressFill.style.width = "100%";
 
