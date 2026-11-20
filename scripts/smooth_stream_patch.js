@@ -192,6 +192,60 @@
         padding: 0 !important;
         overflow: hidden !important;
       }
+      /* Cải thiện UI/UX: Thanh select chọn Camera & Nút Kết nối */
+      .cam-select-row {
+        display: flex !important;
+        align-items: flex-end !important;
+        gap: 8px !important;
+        margin-bottom: 6px !important;
+      }
+      .cam-select-row > div:first-child,
+      .cam-select-dropdown {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+      }
+      .cam-select-dropdown input,
+      .gradio-dropdown input {
+        padding-right: 2.6rem !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        cursor: text !important;
+      }
+      .btn-cam-connect,
+      #btn_tab5_connect_cam,
+      #btn_traffic_connect_cam,
+      #btn_fusion_connect_cam {
+        align-self: flex-end !important;
+        height: 42px !important;
+        min-height: 42px !important;
+        max-height: 42px !important;
+        line-height: 1 !important;
+        padding: 0 16px !important;
+        width: auto !important;
+        min-width: 85px !important;
+        max-width: 110px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        margin-bottom: 0px !important;
+        white-space: nowrap !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+        transition: all 0.2s ease !important;
+      }
+      .btn-cam-connect:hover,
+      #btn_tab5_connect_cam:hover,
+      #btn_traffic_connect_cam:hover,
+      #btn_fusion_connect_cam:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 3px 8px rgba(91, 108, 249, 0.28) !important;
+      }
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -437,12 +491,44 @@
     });
   }
 
+  function fixCameraSelectUI() {
+    const connectButtons = document.querySelectorAll(
+      '#btn_tab5_connect_cam, #btn_traffic_connect_cam, #btn_fusion_connect_cam, .btn-cam-connect'
+    );
+    connectButtons.forEach((btn) => {
+      btn.style.setProperty('height', '42px', 'important');
+      btn.style.setProperty('min-height', '42px', 'important');
+      btn.style.setProperty('max-height', '42px', 'important');
+      btn.style.setProperty('align-self', 'flex-end', 'important');
+      btn.style.setProperty('padding', '0 16px', 'important');
+      btn.style.setProperty('width', 'auto', 'important');
+      btn.style.setProperty('min-width', '85px', 'important');
+      btn.style.setProperty('font-size', '14px', 'important');
+      btn.style.setProperty('font-weight', '600', 'important');
+
+      const parentRow = btn.closest('.row, [data-testid="row"], .cam-select-row');
+      if (parentRow) {
+        parentRow.style.setProperty('align-items', 'flex-end', 'important');
+        const dropdown = parentRow.querySelector('.gradio-dropdown');
+        if (dropdown) {
+          dropdown.style.setProperty('flex', '1 1 auto', 'important');
+          const input = dropdown.querySelector('input');
+          if (input) {
+            input.style.setProperty('padding-right', '2.6rem', 'important');
+            input.style.setProperty('text-overflow', 'ellipsis', 'important');
+          }
+        }
+      }
+    });
+  }
+
   function masterTick() {
     injectCustomStyles();
     sanitizeAllGradioEmojis();
     attachHeaderPerfBadges();
     enforceMinStripWidthOnLoad();
     attachCanvasObservers();
+    fixCameraSelectUI();
   }
 
   setInterval(masterTick, 250);

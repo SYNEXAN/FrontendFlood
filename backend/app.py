@@ -2587,6 +2587,85 @@ custom_css = """
 .toast-wrap, .toast-body, .toast, div[data-testid="toast"] {
     display: none !important;
 }
+
+/* ========================================================================== */
+/* CẢI THIỆN UI/UX: THANH SELECT CHỌN CAMERA & NÚT KẾT NỐI                  */
+/* ========================================================================== */
+.cam-select-row {
+    display: flex !important;
+    align-items: flex-end !important;
+    gap: 8px !important;
+    margin-bottom: 6px !important;
+}
+
+.cam-select-row > div:first-child,
+.cam-select-dropdown {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+}
+
+/* Khắc phục lỗi chữ bị đè bởi icon mũi tên chevron trong select */
+.cam-select-dropdown .wrap,
+.gradio-dropdown .wrap {
+    position: relative !important;
+}
+
+.cam-select-dropdown input,
+.gradio-dropdown input {
+    padding-right: 2.6rem !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    line-height: 1.4 !important;
+    cursor: text !important;
+}
+
+/* Thu nhỏ chiều cao và kích thước nút Kết nối, căn đáy ngang bằng ô select */
+.btn-cam-connect,
+#btn_tab5_connect_cam,
+#btn_traffic_connect_cam,
+#btn_fusion_connect_cam {
+    align-self: flex-end !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    max-height: 42px !important;
+    line-height: 1 !important;
+    padding: 0 16px !important;
+    width: auto !important;
+    min-width: 85px !important;
+    max-width: 110px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    margin-bottom: 0px !important;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+    transition: all 0.2s ease !important;
+}
+
+.cam-select-row > div:has(.btn-cam-connect),
+.cam-select-row > div:has(#btn_tab5_connect_cam),
+.cam-select-row > div:has(#btn_traffic_connect_cam),
+.cam-select-row > div:has(#btn_fusion_connect_cam) {
+    display: flex !important;
+    align-items: flex-end !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+}
+
+.btn-cam-connect:hover,
+#btn_tab5_connect_cam:hover,
+#btn_traffic_connect_cam:hover,
+#btn_fusion_connect_cam:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 3px 8px rgba(91, 108, 249, 0.28) !important;
+}
 """
 
 with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.themes.Soft(), css=custom_css) as demo:
@@ -2625,15 +2704,17 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                                 interactive=True
                             )
                         with gr.TabItem("Camera", id="input_camera") as tab_input_camera:
-                            with gr.Row():
+                            with gr.Row(elem_classes=["cam-select-row"]):
                                 tab5_cam_preset = gr.Dropdown(
                                     choices=[(f"{c['name']} - {c['short_loc']}", c["url"]) for c in CANTHO_CAMERAS],
                                     value=CANTHO_CAMERAS[0]["url"],
                                     label="Chọn Camera",
                                     interactive=True,
-                                    scale=3
+                                    allow_custom_value=True,
+                                    scale=5,
+                                    elem_classes=["cam-select-dropdown"]
                                 )
-                                btn_tab5_connect_cam = gr.Button("Kết nối", variant="primary", scale=1)
+                                btn_tab5_connect_cam = gr.Button("Kết nối", variant="primary", scale=0, min_width=85, size="sm", elem_classes=["btn-cam-connect"], elem_id="btn_tab5_connect_cam")
 
                     with gr.Row():
                         btn_tab5_run_live = gr.Button("🚀 BẮT ĐẦU DỰ ĐOÁN AI", variant="primary", size="lg")
@@ -2742,15 +2823,17 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                                 interactive=True
                             )
                         with gr.TabItem("Camera", id="traffic_input_camera") as tab_traffic_camera:
-                            with gr.Row():
+                            with gr.Row(elem_classes=["cam-select-row"]):
                                 traffic_cam_preset = gr.Dropdown(
                                     choices=[(f"{c['name']} - {c['short_loc']}", c["url"]) for c in CANTHO_CAMERAS],
                                     value=CANTHO_CAMERAS[0]["url"],
                                     label="Chọn Camera",
                                     interactive=True,
-                                    scale=3
+                                    allow_custom_value=True,
+                                    scale=5,
+                                    elem_classes=["cam-select-dropdown"]
                                 )
-                                btn_traffic_connect_cam = gr.Button("Kết nối", variant="primary", scale=1)
+                                btn_traffic_connect_cam = gr.Button("Kết nối", variant="primary", scale=0, min_width=85, size="sm", elem_classes=["btn-cam-connect"], elem_id="btn_traffic_connect_cam")
 
                     with gr.Row():
                         btn_traffic_run_live = gr.Button("🚀 BẮT ĐẦU DỰ ĐOÁN AI", variant="primary", size="lg")
@@ -2824,15 +2907,17 @@ with gr.Blocks(title="AI Urban Flood & Traffic Congestion Monitor", theme=gr.the
                                 interactive=True
                             )
                         with gr.TabItem("Camera", id="fusion_input_camera") as tab_fusion_camera:
-                            with gr.Row():
+                            with gr.Row(elem_classes=["cam-select-row"]):
                                 fusion_cam_preset = gr.Dropdown(
                                     choices=[(f"{c['name']} - {c['short_loc']}", c["url"]) for c in CANTHO_CAMERAS],
                                     value=CANTHO_CAMERAS[0]["url"],
                                     label="Chọn Camera",
                                     interactive=True,
-                                    scale=3
+                                    allow_custom_value=True,
+                                    scale=5,
+                                    elem_classes=["cam-select-dropdown"]
                                 )
-                                btn_fusion_connect_cam = gr.Button("Kết nối", variant="primary", scale=1)
+                                btn_fusion_connect_cam = gr.Button("Kết nối", variant="primary", scale=0, min_width=85, size="sm", elem_classes=["btn-cam-connect"], elem_id="btn_fusion_connect_cam")
 
                     with gr.Row():
                         btn_fusion_run_live = gr.Button("🚀 BẮT ĐẦU DỰ ĐOÁN", variant="primary", size="lg")
